@@ -17,7 +17,7 @@ param(
     [switch]$motionAll
 )
 
-Set-Location "E:\tutorial_n8n"
+Set-Location $PSScriptRoot
 Write-Host ""
 Write-Host "╔══════════════════════════════════════════════════╗" -ForegroundColor Cyan
 Write-Host "║  🏛️  SEJARAH KERAJAAN INDONESIA                  ║" -ForegroundColor Cyan

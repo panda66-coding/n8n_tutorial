@@ -10,22 +10,24 @@
  * ║  node run_sejarah.js --list       → tampilkan daftar 30 judul║
  * ║  node run_sejarah.js --no-motion  → skip animasi             ║
  * ║  node run_sejarah.js --motion-all → animasi semua scene      ║
+ * ║  node run_sejarah.js --long       → 15 scene, 3-5 menit      ║
  * ╚══════════════════════════════════════════════════════════════╝
  */
 
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 const https  = require('https');
 const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
+const { MsEdgeTTS, OUTPUT_FORMAT } = require('msedge-tts');
 
 // ── PATHS ──────────────────────────────────────────────────────
 const FFMPEG    = 'C:/Users/User/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.1-full_build/bin/ffmpeg.exe';
 const FFPROBE   = 'C:/Users/User/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.1-full_build/bin/ffprobe.exe';
 const FONT_BOLD = 'C\\:/Windows/Fonts/arialbd.ttf';
 const FONT_NRM  = 'C\\:/Windows/Fonts/arial.ttf';
-const BASE_DIR  = 'E:/tutorial_n8n/output/sejarah';
-const JADWAL    = JSON.parse(fs.readFileSync('E:/tutorial_n8n/content/sejarah_kerajaan_30hari.json', 'utf8'));
+const BASE_DIR  = path.join(__dirname, 'output/sejarah').replace(/\\/g, '/');
+const JADWAL    = JSON.parse(fs.readFileSync(path.join(__dirname, 'content/sejarah_kerajaan_30hari.json'), 'utf8'));
 
 // ── API KEYS ───────────────────────────────────────────────────
 const GROQ_KEY     = process.env.GROQ_API_KEY       || '';
@@ -41,6 +43,7 @@ const MOTION_ALL = process.argv.includes('--motion-all');
 const RUN_SEMUA  = process.argv.includes('--semua');
 const SHOW_LIST  = process.argv.includes('--list');
 const HARI_ARG   = (() => { const i = process.argv.indexOf('--hari'); return i > -1 ? parseInt(process.argv[i+1]) : null; })();
+const USE_LONG   = process.argv.includes('--long'); // 15 scene, 3-5 menit, DYK segments
 
 // ── VIDEO SETTINGS ─────────────────────────────────────────────
 const VIDEO_W = 576;
@@ -65,7 +68,7 @@ function warn(m) { console.warn('  ⚠️  ' + m); }
 function info(m) { console.log('  ℹ️  ' + m); }
 function err(m)  { console.error('  ❌ ' + m); }
 function step(n,t){ log(`\n${'━'.repeat(50)}\nSTEP ${n} ${t}\n${'━'.repeat(50)}`); }
-function sleep(ms){ execSync(`ping -n ${Math.ceil(ms/1000)+1} 127.0.0.1 > nul`, { shell:'cmd.exe', timeout:ms+5000 }); }
+function sleep(ms){ const t=Date.now(); while(Date.now()-t<ms){} }
 
 function slugify(s) {
   return s.toLowerCase()
@@ -77,7 +80,7 @@ function slugify(s) {
 function getAudioDuration(f) {
   try {
     const out = execSync(`"${FFPROBE}" -v quiet -show_entries format=duration -of csv=p=0 "${f}"`,
-      { encoding:'utf8', timeout:8000 });
+      { encoding:'utf8', timeout:8000, shell:'cmd.exe' });
     return Math.ceil(parseFloat(out.trim()) + 0.5) || 12;
   } catch(e) { return 12; }
 }
@@ -173,10 +176,15 @@ function httpsGet(hostname, path, headers) {
 // ────────────────────────────────────────────────────────────────
 //  GROQ AI — Generate Script Sejarah
 // ────────────────────────────────────────────────────────────────
-async function generateScriptSejarah(jadwalItem) {
+async function generateScriptSejarah(jadwalItem, longFormat = false) {
   if (!GROQ_KEY) { warn('Groq key tidak ada'); return null; }
 
-  info(`Groq AI: generate script "${jadwalItem.judul}"...`);
+  const numScenes = longFormat ? 15 : 10;
+  const wordMin   = longFormat ? 50  : 35;
+  const wordMax   = longFormat ? 65  : 45;
+  const durBase   = longFormat ? 18  : 14;
+
+  info(`Groq AI: generate script "${jadwalItem.judul}" (${numScenes} scene, ${wordMin}-${wordMax} kata/scene)...`);
 
   const systemPrompt = `Kamu adalah pendongeng sejarah Indonesia yang jenius untuk anak-anak.
 Kamu membuat konten video edukasi sejarah yang seru, mengejutkan, dan mudah dipahami anak usia 7-14 tahun.
@@ -184,20 +192,40 @@ Gaya: Seperti teman bermain yang bercerita, bukan guru yang membosankan.
 Bahasa: Indonesia yang hidup, penuh semangat, sesekali kata seru seperti "Wow!", "Luar biasa!", "Tahukah kamu?".
 Selalu hubungkan fakta sejarah dengan kehidupan anak-anak sehari-hari agar mudah dipahami.
 
-PENTING — Untuk setiap scene, buat image_prompt yang SANGAT DETAIL seperti contoh CapCut:
-CONTOH BAGUS: "Raja muda berambut hitam panjang, mahkota emas berukir teratai, jubah sutra merah bordiran emas, duduk di singgasana kayu jati, istana berdinding batu bata merah, pilar ukir tinggi, lampu minyak berkelip hangat, prajurit berseragam di samping, clay animation style, 3D claymation render, soft plasticine texture, smooth shiny surface, bright cheerful colors, cute chibi characters, miniature world feel, highly detailed, 8K"
-CONTOH BURUK (JANGAN): "raja kerajaan, clay style" ← terlalu generik!
+PENTING — image_prompt HARUS SANGAT DETAIL dan COCOK dengan narasi. Ikuti aturan ini ketat:
 
-image_prompt harus mengandung:
-1. Nama tokoh + ciri fisik spesifik (warna baju, mahkota, rambut)
-2. Setting lokasi + detail arsitektur atau alam (warna, tekstur, bahan)
-3. Suasana/pencahayaan (pagi/siang/malam, api, matahari, dll)
-4. SELALU akhiri dengan: clay animation style, 3D claymation render, soft plasticine texture, smooth shiny surface, bright cheerful colors, cute chibi characters, miniature world feel, highly detailed, 8K`;
+ATURAN image_prompt (WAJIB SEMUA TERPENUHI):
+1. SELALU ada TOKOH MANUSIA yang aktif melakukan sesuatu — BUKAN gambar peta, benda mati, atau pemandangan kosong
+2. Tokoh harus cute chibi style, ekspresi wajah jelas (senang, kagum, semangat, penasaran)
+3. Sebutkan ciri fisik SPESIFIK: warna rambut, warna pakaian, aksesori (mahkota/senjata/alat)
+4. Setting HARUS COCOK dengan narasi: kalau narasi bicara tentang laut → tokoh di kapal; tentang agama → di kuil; tentang perdagangan → di pasar/pelabuhan dengan pedagang dari berbagai negara
+5. Suasana/pencahayaan yang CERIA: golden sunrise, sunny day, warm torch light — HINDARI dark/gloomy/suram
+6. Untuk scene perang/kejatuhan: tetap CERAH dan BERWARNA, tokoh tetap terlihat BERANI (bukan sedih/hancur)
+7. SELALU akhiri dengan: clay animation style, 3D claymation render, soft plasticine texture, smooth shiny surface, bright cheerful colors, cute chibi characters, miniature world feel, highly detailed, 8K, no text, no watermark
+
+CONTOH BAGUS: "Cute chibi Sriwijaya navigator boy with short black hair, navy blue tunic, holding a wooden compass, standing on a large wooden ship deck, Sumatra coastline with lush rainforest in background, crystal clear blue sea, other crew members rowing, morning sunlight, clay animation style, 3D claymation render, soft plasticine texture, smooth shiny surface, bright cheerful colors, cute chibi characters, miniature world feel, highly detailed, 8K, no text, no watermark"
+CONTOH BURUK: "Peta Asia Tenggara kuno, kerajaan-kerajaan kecil, clay style" ← TIDAK ADA TOKOH, TIDAK MENARIK!`;
+
+  // ── Long format rules (15 scene, DYK segments) ──
+  const longRules = longFormat ? `
+
+STRUKTUR 15 SCENE (FORMAT PANJANG 3-5 MENIT):
+  Scene  1       : HOOK — pertanyaan/fakta mengejutkan yang bikin penonton penasaran
+  Scene  2- 3    : LATAR — sejarah singkat & konteks zaman
+  Scene  4- 5    : FAKTA UNIK — hal-hal yang jarang diketahui tentang topik ini
+  Scene  6- 8    : KISAH UTAMA — peristiwa paling dramatis & seru, cerita mendalam
+  Scene  9       : 🔍 DID YOU KNOW #1 — awali narasi dengan "Tahukah kamu..." lalu ungkap fakta mengejutkan yang sangat spesifik dan jarang diketahui orang
+  Scene 10-11    : DAMPAK & PENGARUH — dampak terhadap Indonesia & dunia hingga kini
+  Scene 12       : 🔍 DID YOU KNOW #2 — awali dengan "Fakta tersembunyi yang bikin kamu terkejut..." lalu fakta unik yang berhubungan langsung dengan kehidupan anak sehari-hari
+  Scene 13       : WARISAN — warisan budaya/sejarah yang masih kita rasakan hari ini
+  Scene 14       : 🔍 DID YOU KNOW #3 — awali dengan "Satu lagi fakta mencengangkan..." lalu fakta yang menghubungkan sejarah ini dengan teknologi/budaya/makanan/bahasa modern
+  Scene 15       : PENUTUP — ajakan inspiratif untuk anak-anak dengan pertanyaan refleksi` : '';
 
   const userPrompt = `Buat script video sejarah SERU berjudul: "${jadwalItem.judul}"
 
 Topik detail: ${jadwalItem.topik_groq}
 Era: ${jadwalItem.era}
+${longRules}
 
 Format JSON berikut (WAJIB):
 {
@@ -209,9 +237,9 @@ Format JSON berikut (WAJIB):
   "scenes": [
     {
       "n": 1,
-      "dur": 14,
+      "dur": ${durBase},
       "emo": "excited",
-      "narration": "WAJIB 35-45 kata. Kalimat hook yang langsung menarik perhatian anak dengan fakta mengejutkan tentang topik ini. Awali dengan pertanyaan atau fakta yang membuat anak-anak terkejut dan penasaran.",
+      "narration": "WAJIB ${wordMin}-${wordMax} kata. Kalimat hook yang langsung menarik perhatian anak dengan fakta mengejutkan tentang topik ini. Awali dengan pertanyaan atau fakta yang membuat anak-anak terkejut dan penasaran.",
       "label": "JUDUL SCENE CAPS MAX 26 KARAKTER",
       "image_prompt": "WAJIB DETAIL — nama tokoh spesifik + ciri fisik + warna kostum + lokasi arsitektur detail + suasana pencahayaan + clay animation style, 3D claymation render, soft plasticine texture, smooth shiny surface, bright cheerful colors, cute chibi characters, miniature world feel, highly detailed, 8K, no text, no watermark",
       "visual": "deskripsi singkat gambar max 12 kata untuk referensi internal"
@@ -220,60 +248,129 @@ Format JSON berikut (WAJIB):
 }
 
 RULES PENTING:
-1. TEPAT 10 scene
-2. narration WAJIB 35-45 kata setiap scene (hitung! jangan kurang)
-3. Scene 1: hook yang mengejutkan
-4. Scene 2-3: latar belakang & fakta unik
-5. Scene 4-6: kisah utama paling seru & dramatis  
-6. Scene 7-8: dampak & pengaruh hingga kini
-7. Scene 9: fakta tersembunyi yang jarang diketahui
-8. Scene 10: penutup inspiratif untuk anak-anak
-9. image_prompt: BAHASA INGGRIS, SANGAT DETAIL, sebutkan nama tokoh + warna + setting + clay style tags
-10. image_prompt setiap scene HARUS BERBEDA (jangan copy paste, beda pose/lokasi/aktivitas)
-11. JSON SAJA, TANPA markdown`;
+1. TEPAT ${numScenes} scene (tidak boleh lebih, tidak boleh kurang)
+2. narration WAJIB ${wordMin}-${wordMax} kata setiap scene (hitung! jangan kurang)
+3. Setiap narration harus bisa berdiri sendiri, penuh informasi, tidak menggantung
+4. Scene "DID YOU KNOW" (scene 9, 12, 14 jika 15 scene): narasi HARUS dimulai dengan "Tahukah kamu...", "Fakta tersembunyi...", atau "Satu lagi fakta..." — ungkap fakta spesifik yang jarang diketahui
+5. image_prompt: BAHASA INGGRIS, SANGAT DETAIL, sebutkan nama tokoh + warna + setting + clay style tags
+6. image_prompt setiap scene HARUS BERBEDA (jangan copy paste, beda pose/lokasi/aktivitas)
+7. JSON SAJA, TANPA markdown`;
 
-  try {
-    const res = await httpsPost('api.groq.com', '/openai/v1/chat/completions',
-      { 'Authorization': `Bearer ${GROQ_KEY}` },
-      JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        max_tokens: 4500,
-        temperature: 0.85
-      })
-    );
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      if (attempt > 1) { info(`Retry ${attempt}/3 setelah 25 detik...`); sleep(25000); }
+      const res = await httpsPost('api.groq.com', '/openai/v1/chat/completions',
+        { 'Authorization': `Bearer ${GROQ_KEY}` },
+        JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          max_tokens: longFormat ? 5500 : 4000,
+          temperature: 0.85
+        })
+      );
 
-    if (res.status !== 200) { warn(`Groq error ${res.status}`); return null; }
+      if (res.status === 429) { warn(`Groq rate limit (429), attempt ${attempt}/3`); continue; }
+      if (res.status !== 200) { warn(`Groq error ${res.status}`); return null; }
 
-    const content = res.body.choices?.[0]?.message?.content || '';
-    const cleaned = content.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
-    const script  = JSON.parse(cleaned);
+      const content = res.body.choices?.[0]?.message?.content || '';
+      const cleaned = content.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
+      const script  = JSON.parse(cleaned);
 
-    if (!script.scenes || script.scenes.length < 5) { warn('Script kurang lengkap'); return null; }
+      if (!script.scenes || script.scenes.length < 5) { warn('Script kurang lengkap'); return null; }
 
-    ok(`Script: "${script.topic}" (${script.scenes.length} scene)`);
-    return script;
-  } catch(e) {
-    warn(`Groq gagal: ${e.message.substring(0,100)}`);
-    return null;
+      ok(`Script: "${script.topic}" (${script.scenes.length} scene)`);
+      return script;
+    } catch(e) {
+      warn(`Groq gagal (attempt ${attempt}): ${e.message.substring(0,100)}`);
+      if (attempt < 3) sleep(15000);
+    }
   }
+  warn('Groq gagal setelah 3x retry');
+  return null;
 }
 
 // ────────────────────────────────────────────────────────────────
 //  EDGE TTS — Narasi Audio
 // ────────────────────────────────────────────────────────────────
-function generateTTSEdge(text, destPath) {
-  const txtFile = destPath.replace('.mp3', '_tmp.txt');
-  fs.writeFileSync(txtFile, text, 'utf8');
-  try {
-    execSync(`python -m edge_tts --voice "id-ID-ArdiNeural" --file "${txtFile}" --write-media "${destPath}"`,
-      { encoding:'utf8', timeout:30000 });
-    try { fs.unlinkSync(txtFile); } catch(e) {}
-    return fs.existsSync(destPath) && fs.statSync(destPath).size > 1000;
-  } catch(e) { try { fs.unlinkSync(txtFile); } catch(e2) {} return false; }
+// ────────────────────────────────────────────────────────────────
+//  EDGE TTS — Microsoft Neural (jauh lebih natural dari Google TTS)
+//  Voice: id-ID-ArdiNeural  (pria, natural, cocok narasi sejarah)
+//  Fallback: id-ID-GadisNeural (wanita, energik)
+//  Fallback 2: Google TTS (jika Edge tidak tersedia)
+// ────────────────────────────────────────────────────────────────
+async function generateTTSEdge(text, destPath) {
+  const destWin = destPath.replace(/\//g, '\\');
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const tts = new MsEdgeTTS();
+      await tts.setMetadata('id-ID-ArdiNeural', OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+      const { audioStream } = await tts.toStream(text);
+      const chunks = [];
+      for await (const chunk of audioStream) chunks.push(chunk);
+      const buf = Buffer.concat(chunks);
+      if (buf.length < 1000) throw new Error(`Audio terlalu kecil: ${buf.length} bytes`);
+      fs.writeFileSync(destWin, buf);
+      return true;
+    } catch(e) {
+      warn(`Edge TTS attempt ${attempt} gagal: ${e.message.substring(0,100)}`);
+      try { if (fs.existsSync(destWin)) fs.unlinkSync(destWin); } catch(ex) {}
+      if (attempt < 3) { const t = Date.now(); while(Date.now()-t<2000){} }
+    }
+  }
+  // Fallback ke Google TTS jika Edge gagal total
+  warn('Edge TTS gagal 3x, fallback ke Google TTS...');
+  return generateTTSGoogle(text, destPath);
+}
+
+// Google TTS — fallback jika Edge TTS tidak tersedia
+function generateTTSGoogle(text, destPath) {
+  const destWin = destPath.replace(/\//g, '\\');
+  const chunks = [];
+  const words  = text.split(' ');
+  let cur = '';
+  for (const w of words) {
+    if ((cur + ' ' + w).trim().length > 180) {
+      if (cur) chunks.push(cur.trim());
+      cur = w;
+    } else {
+      cur = (cur + ' ' + w).trim();
+    }
+  }
+  if (cur) chunks.push(cur.trim());
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const allBufs = [];
+      for (let i = 0; i < chunks.length; i++) {
+        const encoded = encodeURIComponent(chunks[i]);
+        const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encoded}&tl=id&client=tw-ob`;
+        const result = spawnSync(
+          'C:\\Windows\\System32\\curl.exe',
+          ['-s', '-L', '--max-time', '20', '-A',
+           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+           url],
+          { encoding:'buffer', timeout:25000 }
+        );
+        if (result.error) throw new Error(`spawnSync error: ${result.error.message}`);
+        if (result.status !== 0) throw new Error(`curl exit ${result.status}`);
+        if (!result.stdout || result.stdout.length < 500) throw new Error(`Chunk ${i+1} terlalu kecil`);
+        allBufs.push(result.stdout);
+        if (i < chunks.length - 1) { const t=Date.now(); while(Date.now()-t<300){} }
+      }
+      const combined = Buffer.concat(allBufs);
+      fs.writeFileSync(destWin, combined);
+      if (fs.statSync(destWin).size > 1000) return true;
+      throw new Error(`File terlalu kecil: ${fs.statSync(destWin).size} bytes`);
+    } catch(e) {
+      warn(`Google TTS attempt ${attempt} gagal: ${e.message.substring(0,100)}`);
+      try { if(fs.existsSync(destWin)) fs.unlinkSync(destWin); } catch(ex) {}
+      if (attempt < 3) { const t=Date.now(); while(Date.now()-t<3000){} }
+    }
+  }
+  return false;
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -337,9 +434,7 @@ async function leonardoGenerateImage(scene, era) {
     width: 576, height: 1024,
     num_images: 1,
     guidance_scale: 7,
-    num_inference_steps: 30,
-    presetStyle: 'ILLUSTRATION',
-    alchemy: true,
+    num_inference_steps: 10,
     public: false,
   });
 
@@ -380,6 +475,271 @@ async function leonardoGenerateImage(scene, era) {
     warn(`Leonardo error: ${e.message.substring(0,80)}`);
     return null;
   }
+}
+
+// ────────────────────────────────────────────────────────────────
+//  LEONARDO AI — Thumbnail Generator (Landscape 16:9)
+// ────────────────────────────────────────────────────────────────
+async function generateThumbnail(script, era, outDir) {
+  if (!LEONARDO_KEY) return null;
+  const judul = script.judul || script.scenes[0]?.label || 'Sejarah Indonesia';
+  const hook  = script.hook  || judul;
+  const eraStyle = {
+    'Hindu-Buddha': 'ancient Javanese Hindu-Buddhist temple, golden stone carvings, intricate reliefs',
+    'Islam':        'Islamic kingdom architecture, arabesque ornaments, crescent and star motifs',
+    'Penjajahan':   'colonial era Indonesia, Dutch colonial buildings, batik motifs, dramatic contrast',
+    'Pergerakan':   'Indonesian national awakening, heroes in traditional dress, patriotic atmosphere',
+    'Kemerdekaan':  'Indonesian independence, red and white flag, 1945 era, triumphant atmosphere',
+    'Modern':       'modern Indonesia, diverse culture, progress and tradition',
+  }[era] || 'historical Indonesia, traditional culture';
+
+  const prompt = [
+    `YouTube thumbnail for Indonesian history video about "${judul}"`,
+    `Hook text concept: "${hook}"`,
+    eraStyle,
+    'clay animation style, 3D cartoon characters, cute chibi style',
+    'vibrant saturated colors, dramatic lighting, eye-catching composition',
+    'landscape 16:9 format, cinematic wide shot',
+    'Indonesian historical scene, educational content for children',
+    'highly detailed, no text overlay, no watermark, 4K quality',
+  ].join(', ').substring(0, 900);
+
+  log(`\n  🖼️  Thumbnail: ${prompt.substring(0, 80)}...`);
+
+  const body = JSON.stringify({
+    prompt,
+    negative_prompt: 'blurry, low quality, text, watermark, ugly, distorted',
+    modelId: 'aa77f04e-3eec-4034-9c07-d0f619684628',
+    width: 1024, height: 576,
+    num_images: 1,
+    guidance_scale: 7,
+    num_inference_steps: 10,
+    public: false,
+  });
+
+  try {
+    const tmpBody = `${BASE_DIR}/_tmp_thumb_body.json`;
+    fs.writeFileSync(tmpBody, body, 'utf8');
+    const genOut = execSync(
+      `curl -s -X POST -H "Authorization: Bearer ${LEONARDO_KEY}" -H "Content-Type: application/json" -d @"${tmpBody}" "https://cloud.leonardo.ai/api/rest/v1/generations"`,
+      { encoding:'utf8', timeout:30000, shell:'cmd.exe' }
+    );
+    try { fs.unlinkSync(tmpBody); } catch(e) {}
+
+    const genRes = JSON.parse(genOut);
+    if (!genRes.sdGenerationJob?.generationId) {
+      warn(`Thumbnail Leonardo error: ${JSON.stringify(genRes).substring(0,80)}`);
+      return null;
+    }
+    const genId = genRes.sdGenerationJob.generationId;
+    log(`     Thumbnail Gen ID: ${genId.substring(0,16)}... | polling...`);
+
+    for (let p = 0; p < 18; p++) {
+      sleep(5000);
+      const pollOut = execSync(
+        `curl -s -H "Authorization: Bearer ${LEONARDO_KEY}" "https://cloud.leonardo.ai/api/rest/v1/generations/${genId}"`,
+        { encoding:'utf8', timeout:15000, shell:'cmd.exe' }
+      );
+      const pollRes = JSON.parse(pollOut);
+      const imgs = pollRes.generations_by_pk?.generated_images || [];
+      if (imgs.length > 0 && imgs[0].url) {
+        const thumbFile = `${outDir}/thumbnail.jpg`;
+        const dlOk = downloadFile(imgs[0].url, thumbFile);
+        if (dlOk) {
+          ok(`Thumbnail OK (${Math.round(fs.statSync(thumbFile).size/1024)}KB) → thumbnail.jpg`);
+          return thumbFile;
+        }
+      }
+    }
+    warn('Thumbnail Leonardo timeout');
+    return null;
+  } catch(e) {
+    warn(`Thumbnail error: ${e.message.substring(0,80)}`);
+    return null;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────
+//  KEN BURNS — Cinematic zoom/pan menggunakan scale+crop (stable)
+//  Syntax: scale=iw:ih:eval=frame, scale='W':'H':eval=frame, crop
+//  Terbukti bekerja di FFmpeg 8.x (diuji langsung)
+// ────────────────────────────────────────────────────────────────
+function buildKenBurns(sceneIdx, dur, w, h) {
+  const fps = 24;
+  const TF  = dur * fps;
+  const OW  = Math.round(w * 1.20);  // 691
+  const OH  = Math.round(h * 1.20);  // 1229
+  const PX  = OW - w;                // 115
+  const PY  = OH - h;                // 205
+  const zx  = Math.max(1, Math.round((OW - w) / TF));
+  const zy  = Math.max(1, Math.round((OH - h) / TF));
+  const px  = Math.max(1, Math.round(PX / TF));
+  const py  = Math.max(1, Math.round(PY / TF));
+
+  // Semua pattern: scale dua kali
+  //   Pass 1: scale=iw:ih:eval=frame  → aktifkan frame-eval context
+  //   Pass 2: scale='W(n)':'H(n)':eval=frame:flags=lanczos → zoom animasi
+  // crop pakai ekspresi (iw-w)/2 atau offset*n
+  const patterns = [
+    // 0: Zoom in dari tengah
+    { label: 'zoom-in-center',
+      w2: `${OW}-${zx}*n`, h2: `${OH}-${zy}*n`,
+      cx: `(iw-${w})/2`,   cy: `(ih-${h})/2` },
+    // 1: Zoom out + pan kanan
+    { label: 'zoom-out-pan-right',
+      w2: `${w}+${zx}*n`,  h2: `${h}+${zy}*n`,
+      cx: `${px}*n`,        cy: `0` },
+    // 2: Pan kanan (zoom tetap)
+    { label: 'pan-right',
+      w2: `${OW}`,          h2: `${OH}`,
+      cx: `${px}*n`,        cy: `${Math.round(PY/2)}` },
+    // 3: Zoom in + pan ke atas
+    { label: 'zoom-in-pan-up',
+      w2: `${OW}-${zx}*n`, h2: `${OH}-${zy}*n`,
+      cx: `(iw-${w})/2`,   cy: `${PY}-${py}*n` },
+    // 4: Zoom out dari pojok kiri bawah
+    { label: 'zoom-out-bottom-left',
+      w2: `${w}+${zx}*n`,  h2: `${h}+${zy}*n`,
+      cx: `0`,              cy: `ih-${h}` },
+    // 5: Pan diagonal
+    { label: 'diagonal-pan',
+      w2: `${OW}`,          h2: `${OH}`,
+      cx: `${Math.round(px*0.7)}*n`, cy: `${Math.round(py*0.7)}*n` },
+    // 6: Zoom in + pan kiri
+    { label: 'zoom-in-pan-left',
+      w2: `${OW}-${zx}*n`, h2: `${OH}-${zy}*n`,
+      cx: `${PX}-${px}*n`, cy: `(ih-${h})/2` },
+    // 7: Pan ke atas
+    { label: 'pan-up',
+      w2: `${OW}`,          h2: `${OH}`,
+      cx: `${Math.round(PX/2)}`, cy: `${PY}-${py}*n` },
+  ];
+
+  const p = patterns[sceneIdx % patterns.length];
+  const filter = [
+    `scale=iw:ih:eval=frame`,
+    `scale='${p.w2}':'${p.h2}':eval=frame:flags=lanczos`,
+    `crop=${w}:${h}:'${p.cx}':'${p.cy}'`,
+    `setsar=1`,
+  ].join(',');
+
+  return { filter, label: p.label };
+}
+
+// Fade-in / Fade-out pada video clip
+function buildFadeFilter(dur, fps = 24) {
+  const fadeFrames = Math.min(8, Math.floor(fps * 0.35)); // ~0.35 detik
+  const fadeInEnd  = fadeFrames / fps;
+  const fadeOutStart = dur - (fadeFrames / fps);
+  return `fade=t=in:st=0:d=${fadeInEnd.toFixed(3)},fade=t=out:st=${fadeOutStart.toFixed(3)}:d=${fadeInEnd.toFixed(3)}`;
+}
+
+// ────────────────────────────────────────────────────────────────
+//  SUBTITLE — Generate SRT dari scenes + durasi audio
+// ────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────
+//  ASS SUBTITLE — Word-by-word, kata penting di-highlight
+//  Format .ass burn langsung ke video via FFmpeg
+// ────────────────────────────────────────────────────────────────
+const HIGHLIGHT_WORDS = [
+  'kerajaan','sultan','raja','ratu','maharaja','panglima','prajurit',
+  'perang','merdeka','nusantara','maritim','armada','pelabuhan',
+  'sriwijaya','majapahit','mataram','demak','singosari','kediri',
+  'pajang','banten','ternate','tidore','gowa','aceh','cirebon',
+  'gajah mada','hayam wuruk','ken arok','tribhuwana','raden wijaya',
+  'diponegoro','sukarno','hatta','kartini','pattimura',
+  'indonesia','nusantara','melayu','jawa','sumatera','kalimantan',
+  'tahukah','fakta','mengejutkan','luar biasa','pertama','terbesar',
+  'terkuat','terkenal','legendaris','bersejarah','hebat','kuat',
+];
+
+function generateASSSubtitle(scenes, scenesAudio, outDir) {
+  const toASSTime = (sec) => {
+    const h  = Math.floor(sec / 3600);
+    const m  = Math.floor((sec % 3600) / 60);
+    const s  = Math.floor(sec % 60);
+    const cs = Math.round((sec - Math.floor(sec)) * 100);
+    return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(cs).padStart(2,'0')}`;
+  };
+
+  // Style: Normal di tengah bawah, Highlight lebih besar + kuning
+  const header = `[Script Info]
+ScriptType: v4.00+
+PlayResX: ${VIDEO_W}
+PlayResY: ${VIDEO_H}
+WrapStyle: 1
+
+[V4+ Styles]
+Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,Strikeout,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
+Style: Normal,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&HAA000000,0,0,0,0,100,100,0.5,0,1,2.5,1,2,20,20,60,1
+Style: Highlight,Arial,26,&H0000FFFF,&H000000FF,&H00000000,&HAA000000,-1,0,0,0,100,100,0.5,0,1,2.5,1,2,20,20,60,1
+
+[Events]
+Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
+
+  const lines = [header];
+  let cursor  = 0;
+  let wordCount = 0;
+
+  for (let i = 0; i < scenes.length; i++) {
+    const dur     = scenesAudio[i]?.duration || scenes[i].dur || 10;
+    const text    = (scenes[i].narration || '').trim();
+    const words   = text.split(/\s+/).filter(Boolean);
+    if (!words.length) { cursor += dur; continue; }
+
+    const secPerWord = dur / words.length;
+
+    words.forEach((word, wi) => {
+      const wStart = cursor + wi * secPerWord;
+      const wEnd   = Math.min(wStart + secPerWord * 1.15, cursor + dur);
+      const cleanW = word.replace(/[^\w\s\u00C0-\u024F]/g, '').toLowerCase();
+      const isKey  = HIGHLIGHT_WORDS.some(k => cleanW.includes(k));
+      const style  = isKey ? 'Highlight' : 'Normal';
+      // Kata highlight: bold + warna kuning; normal: putih
+      const display = isKey ? `{\\b1}${word}{\\b0}` : word;
+      lines.push(`Dialogue: 0,${toASSTime(wStart)},${toASSTime(wEnd)},${style},,0,0,0,,${display}`);
+      wordCount++;
+    });
+
+    cursor += dur;
+  }
+
+  const assPath = `${outDir}/subtitle.ass`;
+  fs.writeFileSync(assPath, lines.join('\n'), 'utf8');
+  ok(`subtitle.ass dibuat (word-by-word, ${wordCount} kata, ${scenes.length} scene)`);
+
+  // Tetap simpan .srt sebagai cadangan
+  generateSubtitleSRT(scenes, scenesAudio, outDir);
+  return assPath;
+}
+
+function generateSubtitleSRT(scenes, scenesAudio, outDir) {
+  const toSRTTime = (sec) => {
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = Math.floor(sec % 60);
+    const ms = Math.round((sec - Math.floor(sec)) * 1000);
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')},${String(ms).padStart(3,'0')}`;
+  };
+
+  let cursor = 0;
+  const lines = [];
+  for (let i = 0; i < scenes.length; i++) {
+    const dur = scenesAudio[i]?.duration || scenes[i].dur || 10;
+    const start = cursor;
+    const end   = cursor + dur;
+    const narration = scenes[i].narration || '';
+    lines.push(`${i + 1}`);
+    lines.push(`${toSRTTime(start)} --> ${toSRTTime(end)}`);
+    lines.push(narration.trim());
+    lines.push('');
+    cursor = end;
+  }
+
+  const srtPath = `${outDir}/subtitle.srt`;
+  fs.writeFileSync(srtPath, lines.join('\n'), 'utf8');
+  ok(`subtitle.srt dibuat (${scenes.length} cue, ${Math.round(cursor)}s total)`);
+  return srtPath;
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -470,7 +830,7 @@ function tgSendMessage(text) {
   fs.writeFileSync(tmpFile, buf);
   try {
     execSync(`powershell -NoProfile -Command "$b=[System.IO.File]::ReadAllText('${tmpFile}',[System.Text.Encoding]::UTF8);Invoke-RestMethod -Uri 'https://api.telegram.org/bot${TG_TOKEN}/sendMessage' -Method POST -ContentType 'application/json;charset=utf-8' -Body $b"`,
-      { encoding:'utf8', timeout:15000 });
+      { encoding:'utf8', timeout:15000, shell:'cmd.exe' });
     try { fs.unlinkSync(tmpFile); } catch(e) {}
   } catch(e) { warn('Telegram message gagal'); }
 }
@@ -478,11 +838,32 @@ function tgSendMessage(text) {
 function tgSendVideo(videoPath, caption) {
   if (!TG_TOKEN || TG_TOKEN === 'SKIP') return;
   const vidWin = videoPath.replace(/\//g,'\\');
+  // Strip emoji & karakter non-ASCII agar aman di cmd.exe
+  const safeCaption = caption.replace(/[^\x00-\x7F]/g, '').substring(0,1024).trim();
   try {
-    execSync(`curl -s -F chat_id=${TG_CHAT_ID} -F "caption=${caption.substring(0,1024)}" -F video=@"${vidWin}" "https://api.telegram.org/bot${TG_TOKEN}/sendVideo"`,
-      { shell:'cmd.exe', timeout:120000 });
+    // Pakai curl.exe eksplisit (bukan alias PowerShell Invoke-WebRequest)
+    execSync(
+      `curl.exe -s -F chat_id=${TG_CHAT_ID} -F "caption=${safeCaption}" -F video=@"${vidWin}" "https://api.telegram.org/bot${TG_TOKEN}/sendVideo"`,
+      { shell:'cmd.exe', timeout:300000 }  // 5 menit untuk video besar
+    );
     ok('Video terkirim ke Telegram!');
-  } catch(e) { warn('Telegram video gagal'); }
+  } catch(e) { warn(`Telegram video gagal: ${e.message.substring(0,80)}`); }
+}
+
+function tgSendPhoto(photoPath, caption) {
+  if (!TG_TOKEN || TG_TOKEN === 'SKIP') return;
+  if (!photoPath || !fs.existsSync(photoPath)) return;
+  const imgWin = photoPath.replace(/\//g,'\\');
+  // Strip emoji & karakter non-ASCII agar aman di cmd.exe
+  const safeCaption = caption.replace(/[^\x00-\x7F]/g, '').substring(0,1024).trim();
+  try {
+    // Pakai curl.exe eksplisit (bukan alias PowerShell Invoke-WebRequest)
+    execSync(
+      `curl.exe -s -F chat_id=${TG_CHAT_ID} -F "caption=${safeCaption}" -F photo=@"${imgWin}" "https://api.telegram.org/bot${TG_TOKEN}/sendPhoto"`,
+      { shell:'cmd.exe', timeout:30000 }
+    );
+    ok('Thumbnail terkirim ke Telegram!');
+  } catch(e) { warn(`Telegram photo gagal: ${e.message.substring(0,80)}`); }
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -523,26 +904,31 @@ async function renderEpisode(jadwalItem) {
 
   // ── STEP 0: Generate Script ─────────────────────────────────
   step('0/5', '📝  Generate script sejarah dari Groq AI...');
-  const SCRIPT = await generateScriptSejarah(jadwalItem);
-
-  if (!SCRIPT) { err('Script gagal dibuat, skip hari ini'); return false; }
-
-  // Simpan script
-  fs.writeFileSync(`${OUT_DIR}/script.json`, JSON.stringify(SCRIPT, null, 2), 'utf8');
-  ok(`Script disimpan: ${OUT_DIR}/script.json`);
+  const scriptFile = `${OUT_DIR}/script.json`;
+  let SCRIPT;
+  if (fs.existsSync(scriptFile)) {
+    SCRIPT = JSON.parse(fs.readFileSync(scriptFile, 'utf8'));
+    ok(`Script di-cache: ${scriptFile} (skip Groq AI)`);
+  } else {
+    SCRIPT = await generateScriptSejarah(jadwalItem, USE_LONG);
+    if (!SCRIPT) { err('Script gagal dibuat, skip hari ini'); return false; }
+    fs.writeFileSync(scriptFile, JSON.stringify(SCRIPT, null, 2), 'utf8');
+    ok(`Script disimpan: ${scriptFile}`);
+  }
 
   // ── STEP 1: TTS Audio ────────────────────────────────────────
-  step('1/5', '🎙️  Generate audio narasi...');
+  step('1/5', '🎙️  Generate audio narasi (Edge TTS / Microsoft Neural)...');
   const scenesAudio = [];
   let totalSec = 0;
 
   for (const s of SCRIPT.scenes) {
-    const audioFile = `${TMP_AUD}/scene${s.n}.mp3`;
-    const ok2 = generateTTSEdge(s.narration, audioFile);
+    const audioFile   = `${TMP_AUD}/scene${s.n}.mp3`;
+    const audioExists = fs.existsSync(audioFile) && fs.statSync(audioFile).size > 1000;
+    const ok2 = audioExists ? true : await generateTTSEdge(s.narration, audioFile);
     const dur  = ok2 ? getAudioDuration(audioFile) : Math.ceil(s.narration.split(' ').length * 0.42);
     const durFinal = Math.max(12, Math.ceil(dur + 0.8));
     totalSec += durFinal;
-    ok(`Scene ${String(s.n).padStart(2,' ')} [Edge TTS]: ${durFinal}s`);
+    ok(`Scene ${String(s.n).padStart(2,' ')} [${audioExists ? 'cached' : 'Edge TTS id-ID-ArdiNeural'}]: ${durFinal}s`);
     scenesAudio.push({ ...s, audioFile, audioOk: ok2, duration: durFinal });
   }
   log(`\n  📊 Total: ${Math.floor(totalSec/60)}m${totalSec%60}s\n`);
@@ -561,8 +947,14 @@ async function renderEpisode(jadwalItem) {
 
     log(`\n  Scene ${s.n}: ${(s.visual || '').substring(0,50)}...`);
 
+    // ── Cache: skip jika gambar sudah ada ──
+    if (fs.existsSync(imgFile) && fs.statSync(imgFile).size > 10000) {
+      imgOk = true;
+      ok(`Scene ${s.n}: Gambar di-cache (${Math.round(fs.statSync(imgFile).size/1024)}KB) [skip Leonardo]`);
+    }
+
     // Generate gambar Leonardo
-    if (LEONARDO_KEY) {
+    if (!imgOk && LEONARDO_KEY) {
       const imgResult = await leonardoGenerateImage(s, era);
       if (imgResult) {
         imgOk   = downloadFile(imgResult.imageUrl, imgFile);
@@ -599,17 +991,23 @@ async function renderEpisode(jadwalItem) {
     scenesImages.push({ ...s, imgFile, imgOk, motionFile, motionOk });
   }
 
-  // ── STEP 3: Render Clips FFmpeg ──────────────────────────────
-  step('3/5', '🎬  Render video clips...');
+  // ── Generate Thumbnail (16:9) ────────────────────────────────
+  const thumbFile = `${OUT_DIR}/thumbnail.jpg`;
+  let thumbnailPath = null;
+  if (fs.existsSync(thumbFile) && fs.statSync(thumbFile).size > 10000) {
+    thumbnailPath = thumbFile;
+    ok(`Thumbnail di-cache (${Math.round(fs.statSync(thumbFile).size/1024)}KB) [skip Leonardo]`);
+  } else {
+    thumbnailPath = await generateThumbnail(SCRIPT, era, OUT_DIR);
+  }
+
+  // ── STEP 3: Render Clips FFmpeg (Cinematic Ken Burns) ───────
+  step('3/5', '🎬  Render video clips (Ken Burns + Fade)...');
 
   const clipPaths = [];
 
   for (const s of scenesImages) {
     const clipOut  = `${TMP_CLIP}/clip${String(s.n).padStart(2,'0')}.mp4`;
-    const inputSrc = s.motionOk ? s.motionFile : s.imgFile;
-    const inputArg = s.motionOk
-      ? `-i "${inputSrc}"`
-      : `-loop 1 -t ${s.duration} -i "${inputSrc}"`;
 
     // Text overlay
     const isHook   = s.n === 1;
@@ -622,9 +1020,8 @@ async function renderEpisode(jadwalItem) {
 
     const narSz  = Math.min(28, Math.max(18, narFontSize));
     const hookSz = Math.min(40, Math.max(26, hookFontSize + 6));
-
-    // Warna label era (atas kiri)
     const eraColor = eraInfo.accent || 'FFD700';
+    const dur = s.duration;
 
     let textFilters = [];
 
@@ -644,8 +1041,6 @@ async function renderEpisode(jadwalItem) {
         const y = 68 + i * (hookSz + 6);
         textFilters.push(`drawtext=text='${ln}':fontsize=${hookSz}:fontcolor=0x${eraColor}:borderw=3:bordercolor=black@0.9:x=(w-text_w)/2:y=${y}:fontfile='${FONT_BOLD}'`);
       });
-
-      // Narasi kecil di bawah hook
       const subSz = Math.min(22, narSz - 4);
       const lineH2 = subSz + 8;
       const narH  = 14 + narLines.length * lineH2 + 10;
@@ -660,7 +1055,6 @@ async function renderEpisode(jadwalItem) {
       const lineH  = narSz + 8;
       const totalH = 20 + narLines.length * lineH + 16;
       const bgY    = VIDEO_H - totalH - 18;
-
       textFilters.push(`drawbox=x=0:y=${bgY}:w=${VIDEO_W}:h=${totalH + 20}:color=black@0.70:t=fill`);
       narLines.forEach((ln, i) => {
         const y     = bgY + 12 + i * lineH;
@@ -670,38 +1064,73 @@ async function renderEpisode(jadwalItem) {
         const sz    = i === 0 ? narSz : narSz - 2;
         textFilters.push(`drawtext=text='${ln}':fontsize=${sz}:fontcolor=${color}:borderw=${bw}:bordercolor=black@0.85:x=(w-text_w)/2:y=${y}:fontfile='${font}'`);
       });
-
-      // Label scene di tengah bawah (kecil)
       if (labelEsc) {
-        textFilters.push(`drawbox=x=0:y=${bgY - 32}:w=${VIDEO_W}:h=30:color=0x${eraInfo.bg}@0.75:t=fill`);
-        textFilters.push(`drawtext=text='${labelEsc}':fontsize=17:fontcolor=0x${eraColor}:x=(w-text_w)/2:y=${bgY - 28}:fontfile='${FONT_BOLD}'`);
+        textFilters.push(`drawbox=x=0:y=${VIDEO_H - (20 + narLines.length * (narSz + 8) + 16) - 18 - 32}:w=${VIDEO_W}:h=30:color=0x${eraInfo.bg}@0.75:t=fill`);
+        textFilters.push(`drawtext=text='${labelEsc}':fontsize=17:fontcolor=0x${eraColor}:x=(w-text_w)/2:y=${VIDEO_H - (20 + narLines.length * (narSz + 8) + 16) - 18 - 28}:fontfile='${FONT_BOLD}'`);
       }
     }
 
-    const vfBase = s.motionOk
-      ? `scale=576:1024:force_original_aspect_ratio=increase,crop=576:1024,setsar=1`
-      : `scale=576:1024:force_original_aspect_ratio=increase,crop=576:1024,setsar=1`;
+    let cmd;
 
-    const vf  = [vfBase, ...textFilters].join(',');
-    const dur = s.duration;
-
-    const cmd = s.motionOk
-      ? `"${FFMPEG}" -y ${inputArg} -i "${s.audioFile}" -vf "${vf}" -c:v libx264 -preset fast -crf 22 -pix_fmt yuv420p -r 24 -c:a aac -b:a 128k -shortest "${clipOut}"`
-      : `"${FFMPEG}" -y ${inputArg} -i "${s.audioFile}" -vf "${vf}" -c:v libx264 -preset fast -crf 22 -pix_fmt yuv420p -r 24 -c:a aac -b:a 128k -t ${dur} "${clipOut}"`;
+    if (s.motionOk) {
+      // ── Sumber video Kling: scale + crop + teks overlay + fade ──
+      const fadeFilter = buildFadeFilter(dur);
+      const vf = [
+        `scale=${VIDEO_W}:${VIDEO_H}:force_original_aspect_ratio=increase`,
+        `crop=${VIDEO_W}:${VIDEO_H}`,
+        `setsar=1`,
+        ...textFilters,
+        fadeFilter,
+      ].join(',');
+      cmd = `"${FFMPEG}" -y -i "${s.motionFile}" -i "${s.audioFile}" -vf "${vf}" -c:v libx264 -preset fast -crf 22 -pix_fmt yuv420p -r 24 -c:a aac -b:a 128k -shortest "${clipOut}"`;
+    } else {
+      // ── Sumber gambar statis: Ken Burns + teks overlay + fade ──
+      const { filter: kbFilter, label: kbLabel } = buildKenBurns(s.n - 1, dur, VIDEO_W, VIDEO_H);
+      const fadeFilter = buildFadeFilter(dur);
+      const vf = [kbFilter, `setsar=1`, ...textFilters, fadeFilter].join(',');
+      log(`     🎥 Ken Burns [${kbLabel}] dur=${dur}s`);
+      cmd = `"${FFMPEG}" -y -loop 1 -framerate 24 -t ${dur + 0.5} -i "${s.imgFile}" -i "${s.audioFile}" -vf "${vf}" -c:v libx264 -preset fast -crf 22 -pix_fmt yuv420p -r 24 -c:a aac -b:a 128k -t ${dur} "${clipOut}"`;
+    }
 
     try {
-      execSync(cmd, { stdio:'pipe', timeout:90000 });
-      const kb = Math.round(fs.statSync(clipOut).size / 1024);
-      ok(`Clip ${s.n} ${s.motionOk ? '🎬' : '🖼️'}: ${dur}s → ${kb}KB`);
-      clipPaths.push(clipOut);
+      execSync(cmd, { stdio:'pipe', timeout:120000, shell:'cmd.exe' });
     } catch(e) {
-      err(`Clip ${s.n} GAGAL: ${e.message.substring(0,80)}`);
+      // FFmpeg exit code 1 = warning non-fatal (bukan error sebenarnya)
+      // Cek apakah file output tetap valid sebelum declare gagal
+      const outputExists = fs.existsSync(clipOut) && fs.statSync(clipOut).size > 50000;
+      if (!outputExists) {
+        err(`Clip ${s.n} GAGAL: ${e.message.substring(0,120)}`);
+        // Fallback: tanpa Ken Burns
+        try {
+          const vfSimple = [
+            `scale=${VIDEO_W}:${VIDEO_H}:force_original_aspect_ratio=increase`,
+            `crop=${VIDEO_W}:${VIDEO_H}`,
+            `setsar=1`,
+            ...textFilters,
+          ].join(',');
+          const cmdFallback = `"${FFMPEG}" -y -loop 1 -t ${dur} -i "${s.imgFile}" -i "${s.audioFile}" -vf "${vfSimple}" -c:v libx264 -preset fast -crf 22 -pix_fmt yuv420p -r 24 -c:a aac -b:a 128k -t ${dur} "${clipOut}"`;
+          execSync(cmdFallback, { stdio:'pipe', timeout:90000, shell:'cmd.exe' });
+          const kb = Math.round(fs.statSync(clipOut).size / 1024);
+          ok(`Clip ${s.n} [fallback static]: ${dur}s → ${kb}KB`);
+          clipPaths.push(clipOut);
+        } catch(e2) {
+          err(`Clip ${s.n} fallback juga GAGAL: ${e2.message.substring(0,80)}`);
+        }
+        continue;
+      }
+      // File valid → exit code 1 adalah warning biasa, lanjutkan
+      log(`     ⚠️  Clip ${s.n} exit code 1 (FFmpeg warning, output valid)`);
+    }
+    if (fs.existsSync(clipOut) && fs.statSync(clipOut).size > 50000) {
+      const kb = Math.round(fs.statSync(clipOut).size / 1024);
+      ok(`Clip ${s.n} ${s.motionOk ? '🎬' : '🎥'}: ${dur}s → ${kb}KB`);
+      clipPaths.push(clipOut);
     }
   }
 
   if (clipPaths.length === 0) { err('Tidak ada clip yang berhasil'); return false; }
 
-  // ── Gabungkan semua clips ───────────────────────────────────
+  // ── Gabungkan semua clips dengan cross-dissolve transition ──
   const concatList = `${TMP_CLIP}/concat_list.txt`;
   fs.writeFileSync(concatList, clipPaths.map(p => `file '${path.resolve(p)}'`).join('\n'), 'utf8');
   log('\n  🔗 Menggabungkan semua clips...');
@@ -709,7 +1138,7 @@ async function renderEpisode(jadwalItem) {
   try {
     execSync(
       `"${FFMPEG}" -y -f concat -safe 0 -i "${concatList}" -c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p -c:a aac -b:a 128k "${finalVideo}"`,
-      { stdio:'pipe', timeout:180000 }
+      { stdio:'pipe', timeout:180000, shell:'cmd.exe' }
     );
     const mb = (fs.statSync(finalVideo).size / (1024*1024)).toFixed(2);
     ok(`Video final: ${mb} MB → ${finalVideo}`);
@@ -718,30 +1147,282 @@ async function renderEpisode(jadwalItem) {
     return false;
   }
 
-  // ── STEP 4: Buat Social Media Text ──────────────────────────
-  step('4/5', '📝  Buat social_media.txt...');
+  // ── STEP 4: Buat ASS Subtitle + Social Media Text ──────────
+  step('4/5', '📝  Buat subtitle word-by-word + social_media.txt...');
 
   const motionCount = scenesImages.filter(s => s.motionOk).length;
-  const hashtags    = [...(SCRIPT.hashtags || []), '#shorts', '#sejarahindonesia', '#kerajaannusantara'].slice(0,12).join(' ');
+  const ttsLabel    = 'Edge TTS id-ID-ArdiNeural';
+  const imgLabel    = LEONARDO_KEY ? (motionCount > 0 ? `Leonardo AI + Kling Motion (${motionCount} scene)` : 'Leonardo AI') : 'Picsum Fallback';
 
-  const socialText = `🏛️ ${judul}
+  // ── Generate ASS subtitle word-by-word (+ SRT sebagai backup) ──
+  const assPath = generateASSSubtitle(SCRIPT.scenes, scenesAudio, OUT_DIR);
 
-${SCRIPT.hook || judul}
+  // ── Burn subtitle ke video final ──
+  const assEsc = assPath.replace(/\\/g,'/').replace(/^([A-Z]):/, (_, d) => `${d}\\:`);
+  const concatNoSub = finalVideo.replace('.mp4', '_nosub.mp4');
 
-📚 Apa yang kamu pelajari hari ini:
-${SCRIPT.scenes.slice(0,5).map((s,i) => `${i+1}. ${s.narration.split(' ').slice(0,8).join(' ')}...`).join('\n')}
+  // Rename video tanpa sub dulu, lalu burn subtitle
+  try {
+    fs.renameSync(finalVideo, concatNoSub);
+    execSync(
+      `"${FFMPEG}" -y -i "${concatNoSub}" -vf "ass='${assEsc}'" -c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p -c:a copy "${finalVideo}"`,
+      { stdio:'pipe', timeout:300000, shell:'cmd.exe' }
+    );
+    fs.unlinkSync(concatNoSub); // hapus file sementara
+    const mb2 = (fs.statSync(finalVideo).size / (1024*1024)).toFixed(2);
+    ok(`Subtitle word-by-word di-burn ke video: ${mb2} MB`);
+  } catch(e) {
+    // Jika burn subtitle gagal, pakai video tanpa subtitle
+    warn(`Burn subtitle gagal (${e.message.substring(0,60)}), pakai video tanpa subtitle`);
+    if (fs.existsSync(concatNoSub) && !fs.existsSync(finalVideo)) {
+      fs.renameSync(concatNoSub, finalVideo);
+    } else if (fs.existsSync(concatNoSub)) {
+      fs.unlinkSync(concatNoSub);
+    }
+  }
 
-⚡ Fakta unik: ${SCRIPT.scenes[8]?.narration?.substring(0,100) || ''}...
+  // ── Bangun hashtag 30+ (sejarah + trending) ──
+  const BASE_TAGS_SEJARAH = [
+    '#shorts', '#fyp', '#foryou', '#foryoupage', '#viral', '#trending',
+    '#sejarahindonesia', '#kerajaannusantara', '#edukasianakid', '#faktasejarah',
+    '#belajarsejarah', '#anakpintarid', '#edukasi', '#sejarah', '#indonesia',
+    '#pendidikan', '#budayaindonesia', '#warisanbudaya', '#kerajaanindonesia',
+    '#videoedukasi', '#faktaunik', '#kontenedukasi', '#sejarahseru',
+    '#animasiclay', '#clayanimation', '#anakbelajar', '#sekolah',
+    '#historicalfacts', '#nusantara', '#indonesianhistory', '#pendidikananak',
+  ];
+  const allTagsSejarah = [...new Set([...(SCRIPT.hashtags || []), ...BASE_TAGS_SEJARAH])];
+  const tags30 = allTagsSejarah.slice(0, 30);
+  const tags20 = allTagsSejarah.slice(0, 20);
+  const tags15 = allTagsSejarah.slice(0, 15);
 
-📅 Hari ke-${hari} dari 30 Hari Sejarah Indonesia
-${hashtags}
+  // ── Full highlights — kalimat lengkap (no truncation) ──
+  const highlights = SCRIPT.scenes.slice(0, 5)
+    .map((s, i) => `  ${i+1}. ${s.narration.trim()}`)
+    .join('\n');
 
----
-🎬 Tech: ${motionCount > 0 ? `Kling AI (${motionCount} scene animasi)` : 'Leonardo AI + FFmpeg'}
-🎙️ Narasi: Edge TTS id-ID-ArdiNeural
-🤖 Script: Groq AI llama-3.3-70b`;
+  // ── Narasi lengkap scene 1-3 dan 1-5 ──
+  const nar3  = SCRIPT.scenes.slice(0, 3).map(s => s.narration.trim()).join(' ');
+  const nar5  = SCRIPT.scenes.slice(0, 5).map(s => s.narration.trim()).join(' ');
+  const narAll = SCRIPT.scenes.map(s => s.narration.trim()).join(' ');
 
-  fs.writeFileSync(`${OUT_DIR}/social_media.txt`, socialText, 'utf8');
+  const thumbEmoji = { 'Hindu-Buddha':'🏛️', 'Islam':'☪️', 'Penjajahan':'⚔️', 'Pergerakan':'✊', 'Kemerdekaan':'🇮🇩', 'Modern':'🌟' }[era] || '📚';
+  const thumbColor = { 'Hindu-Buddha':'Emas & Merah', 'Islam':'Hijau & Emas', 'Penjajahan':'Biru & Merah', 'Pergerakan':'Ungu & Merah Muda', 'Kemerdekaan':'Merah & Putih', 'Modern':'Biru & Putih' }[era] || 'Merah & Emas';
+  const tvMin  = Math.floor(totalSec / 60);
+  const tvSec2 = String(totalSec % 60).padStart(2,'0');
+
+  // ── YouTube title pilihan (max 100 karakter) ──
+  const ytTitles = [
+    `${thumbEmoji} ${SCRIPT.hook}`,
+    `${judul} | Video Sejarah Anak Seru!`,
+    `${thumbEmoji} ${judul} | Animasi Clay Sejarah Indonesia`,
+    `Fakta Sejarah: ${judul} yang Bikin Kamu Takjub! ${thumbEmoji}`,
+    `Hari ${hari}/30 Sejarah Indonesia: ${judul}`,
+  ].map(t => t.substring(0, 100));
+
+  // ── YouTube Tags array (max 500 karakter total) ──
+  const ytTagsArr = [
+    judul.toLowerCase(),
+    era.toLowerCase(),
+    'sejarah indonesia untuk anak',
+    'kerajaan nusantara',
+    'video edukasi sejarah anak sd',
+    'animasi clay sejarah indonesia',
+    'belajar sejarah seru',
+    'sejarah indonesia',
+    'edukasi anak indonesia',
+    'fakta sejarah indonesia',
+    'sejarah sd smp',
+    'animasi edukasi',
+    '30 hari sejarah indonesia',
+    'clay animation history',
+    'indonesian history for kids',
+  ];
+
+  // ── Deskripsi YouTube (full, no truncation) ──
+  const ytDesc = [
+    `${thumbEmoji} ${SCRIPT.hook}`,
+    '',
+    `Di video ini, anak-anak akan mengenal sejarah tentang ${judul} dengan cara yang seru dan menyenangkan melalui animasi clay yang berwarna-warni!`,
+    '',
+    `${nar3}`,
+    '',
+    `✅ APA YANG AKAN KAMU PELAJARI:`,
+    highlights,
+    '',
+    `🏛️ Era Sejarah : ${era} | ${eraInfo.label}`,
+    `📅 Seri        : 30 Hari Sejarah Indonesia — Hari ${hari}/30`,
+    `🎬 Durasi      : ${tvMin} menit ${tvSec2} detik | ${SCRIPT.scenes.length} scene`,
+    '',
+    `🎯 Video ini cocok untuk:`,
+    `  • Anak usia 7–14 tahun`,
+    `  • Pelajaran IPS / Sejarah SD & SMP`,
+    `  • Orang tua yang ingin ajak anak belajar sejarah`,
+    `  • Guru sejarah yang butuh materi visual menarik`,
+    '',
+    `🔔 SUBSCRIBE & nyalakan notifikasi bel 🔔`,
+    `  → Video sejarah baru setiap hari selama 30 hari!`,
+    '',
+    `👇 TONTON SERI LENGKAP 30 HARI SEJARAH INDONESIA:`,
+    `  → Playlist: [tambahkan link playlist Anda]`,
+    '',
+    tags20.join(' '),
+  ].join('\n');
+
+  const socialLines = [
+    '╔══════════════════════════════════════════════════════╗',
+    `║   📱 SOCIAL MEDIA KIT — Hari ${String(hari).padStart(2,' ')}/30`,
+    `║   🏛️  ${judul.substring(0, 50)}`,
+    `║   🕰️  Era : ${era} | ${eraInfo.label}`,
+    `║   🎬 Durasi: ${tvMin}:${tvSec2} | ${SCRIPT.scenes.length} scene | ${motionCount > 0 ? motionCount + ' motion' : 'static'}`,
+    `║   🎙️  Voice : ${ttsLabel}`,
+    `║   🎨 Gambar: ${imgLabel}`,
+    '╚══════════════════════════════════════════════════════╝',
+    '',
+    '┌──────────────────────────────────────────────────────┐',
+    '│  🖼️  THUMBNAIL                                       │',
+    '└──────────────────────────────────────────────────────┘',
+    '',
+    thumbnailPath
+      ? `✅ Thumbnail AI (Leonardo): ${thumbnailPath}`
+      : `⚠️  Thumbnail AI tidak tersedia — buat manual`,
+    '',
+    `KONSEP A — DRAMATIS HISTORIS`,
+    `  Teks utama  : "${judul.toUpperCase()}"`,
+    `  Sub-teks    : "Fakta Sejarah Yang Mengejutkan!"`,
+    `  Karakter    : ${SCRIPT.scenes[0]?.visual?.split(',')[0] || 'tokoh sejarah clay'} + ekspresi ${thumbEmoji}`,
+    `  Background  : ${thumbColor} gradient dengan motif batik/ukiran`,
+    `  Layout      : Tokoh 60% kiri, teks tebal 40% kanan, border emas`,
+    '',
+    `KONSEP B — PERTANYAAN HOOK`,
+    `  Teks utama  : "${SCRIPT.hook}"`,
+    `  Sub-teks    : "Jawabannya Bikin Kaget!"`,
+    `  Gaya        : Latar keraton/istana clay, tanda tanya besar`,
+    `  Warna       : ${thumbColor}, efek glow di teks`,
+    `  Font        : Bold caps dengan shadow tebal`,
+    '',
+    `TOOLS THUMBNAIL: Canva | Adobe Express | CapCut PC`,
+    '',
+    '┌──────────────────────────────────────────────────────┐',
+    '│  🎬 YOUTUBE & YOUTUBE SHORTS                         │',
+    '└──────────────────────────────────────────────────────┘',
+    '',
+    '── JUDUL YOUTUBE (pilih salah satu, max 100 karakter) ──',
+    ...ytTitles.map((t, i) => `${String.fromCharCode(65+i)}) ${t}`),
+    '',
+    '── DESKRIPSI YOUTUBE (copy-paste langsung) ──',
+    '',
+    ytDesc,
+    '',
+    '── TAGS YOUTUBE (copy-paste ke kolom tags) ──',
+    ytTagsArr.join(', '),
+    '',
+    '── END SCREEN & CARD (saran) ──',
+    `  • 0:00–0:03 : Animasi subscribe`,
+    `  • Akhir     : Rekomendasikan episode sebelum/sesudah`,
+    `  • Card popup: Muncul di detik ke-5`,
+    '',
+    '┌──────────────────────────────────────────────────────┐',
+    '│  📸 INSTAGRAM (Feed & Reels)                         │',
+    '└──────────────────────────────────────────────────────┘',
+    '',
+    '── CAPTION INSTAGRAM ──',
+    '',
+    `${thumbEmoji} ${SCRIPT.hook}`,
+    '',
+    nar5,
+    '',
+    `💡 Simpan & share ke teman-teman! Sejarah itu seru lho! 🎓`,
+    `👇 Tag teman yang suka sejarah Indonesia!`,
+    '',
+    tags15.join(' '),
+    '',
+    '── ALT TEXT (aksesibilitas) ──',
+    `Video animasi clay berjudul "${judul}" tentang sejarah Indonesia era ${era} untuk edukasi anak.`,
+    '',
+    '┌──────────────────────────────────────────────────────┐',
+    '│  🎵 TIKTOK                                           │',
+    '└──────────────────────────────────────────────────────┘',
+    '',
+    '── CAPTION TIKTOK ──',
+    '',
+    `${thumbEmoji} ${SCRIPT.hook} #sejarahindonesia #fyp`,
+    '',
+    SCRIPT.scenes[0]?.narration?.trim(),
+    '',
+    `Follow untuk lanjut 30 hari sejarah Indonesia! 👆`,
+    '',
+    tags20.join(' '),
+    '',
+    '── TIKTOK METADATA ──',
+    `  Judul        : ${judul}`,
+    `  Durasi       : ${tvMin}:${tvSec2} (target <60s untuk Shorts)`,
+    `  Sound        : Gunakan gamelan/instrumen tradisional sebagai BGM`,
+    `  Sticker      : Tambah sticker bendera Indonesia & teks sejarah`,
+    `  Best post    : Senin–Jumat pukul 07:00–09:00 & 19:00–21:00 WIB`,
+    '',
+    '┌──────────────────────────────────────────────────────┐',
+    '│  📊 META / SEO DATA                                  │',
+    '└──────────────────────────────────────────────────────┘',
+    '',
+    `Topik utama   : ${judul}`,
+    `Era sejarah   : ${era} | ${eraInfo.label}`,
+    `Seri          : 30 Hari Sejarah Indonesia — Hari ${hari}/30`,
+    `Genre konten  : Sejarah | Edukasi | Animasi Clay`,
+    `Target usia   : 7–14 tahun`,
+    `Bahasa        : Indonesia`,
+    `Durasi video  : ${tvMin} menit ${tvSec2} detik`,
+    `Total scene   : ${SCRIPT.scenes.length}`,
+    `Subtitle SRT  : subtitle.srt (${SCRIPT.scenes.length} cue)`,
+    thumbnailPath ? `Thumbnail     : thumbnail.jpg (Leonardo AI 1024×576)` : `Thumbnail     : —`,
+    '',
+    `SEO Keywords  :`,
+    ...ytTagsArr.map(k => `  • ${k}`),
+    '',
+    `Kategori YT   : Education`,
+    `Bahasa audio  : id-ID (Indonesia)`,
+    `COPPA         : Made for kids`,
+    `Subtitle      : subtitle.srt disertakan (${SCRIPT.scenes.length} cue, ${tvMin}m${tvSec2}s)`,
+    '',
+    '┌──────────────────────────────────────────────────────┐',
+    '│  🎬 SCENE BREAKDOWN (narasi lengkap)                 │',
+    '└──────────────────────────────────────────────────────┘',
+    '',
+    ...SCRIPT.scenes.map((s, i) => {
+      const dur = scenesAudio[i]?.duration || s.dur || '?';
+      const mv  = scenesImages[i]?.motionOk ? '[🎬motion]' : '[📷static]';
+      const isDYK = /^(tahukah kamu|fakta tersembunyi|satu lagi fakta)/i.test(s.narration.trim());
+      const dykBadge = isDYK ? ' 🔍 DID YOU KNOW' : '';
+      return [
+        `  Scene ${String(i+1).padStart(2,' ')} [${dur}s] ${mv}${dykBadge}`,
+        `  Narasi : ${s.narration.trim()}`,
+        `  Visual : ${(s.visual || s.image_prompt || '').trim()}`,
+        `  Label  : ${s.label || ''}`,
+        '',
+      ].join('\n');
+    }),
+    '┌──────────────────────────────────────────────────────┐',
+    '│  #️⃣  HASHTAG LENGKAP (30 tag)                       │',
+    '└──────────────────────────────────────────────────────┘',
+    '',
+    tags30.join(' '),
+    '',
+    '┌──────────────────────────────────────────────────────┐',
+    '│  ⚙️  PIPELINE INFO                                   │',
+    '└──────────────────────────────────────────────────────┘',
+    '',
+    `Generated  : ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB`,
+    `Hari ke    : ${hari}/30`,
+    `Script AI  : Groq llama-3.3-70b`,
+    `Voice AI   : ${ttsLabel}`,
+    `Image AI   : ${imgLabel}`,
+    `Thumbnail  : ${thumbnailPath ? 'Leonardo AI (1024×576)' : '—'}`,
+    `Subtitle   : subtitle.srt`,
+    `Output dir : ${OUT_DIR}`,
+    '─────────────────────────────────────────────────────',
+  ];
+
+  fs.writeFileSync(`${OUT_DIR}/social_media.txt`, socialLines.join('\n'), 'utf8');
   ok('social_media.txt dibuat');
 
   // ── Cleanup tmp ─────────────────────────────────────────────
@@ -754,12 +1435,20 @@ ${hashtags}
 
   const tgMsg = `🏛️ <b>Hari ${hari}/30 — Sejarah Indonesia</b>\n<b>${judul}</b>\n\n${eraInfo.label}\n\n📊 ${SCRIPT.scenes.length} scene | ${Math.floor(totalSec/60)}m${totalSec%60}s | ${motionCount > 0 ? `${motionCount} scene animasi Kling` : 'gambar static'}\n\n✅ Siap upload ke TikTok/YouTube Shorts!`;
   tgSendMessage(tgMsg);
+
+  // Kirim thumbnail dulu
+  if (thumbnailPath && fs.existsSync(thumbnailPath)) {
+    // Hindari emoji di caption curl.exe (encoding issue di Windows cmd)
+    const thumbCaption = `Thumbnail Hari ${hari}/30 - ${judul} - Leonardo AI 1024x576`;
+    tgSendPhoto(thumbnailPath, thumbCaption);
+  }
+
   tgSendVideo(finalVideo.replace(/\//g,'\\'), `Hari ${hari}/30: ${judul}`);
 
   // Kirim social_media.txt
   const socialPath = `${OUT_DIR}/social_media.txt`.replace(/\//g,'\\');
   try {
-    execSync(`curl -s -F chat_id=${TG_CHAT_ID} -F document=@"${socialPath}" "https://api.telegram.org/bot${TG_TOKEN}/sendDocument"`,
+    execSync(`curl.exe -s -F chat_id=${TG_CHAT_ID} -F document=@"${socialPath}" "https://api.telegram.org/bot${TG_TOKEN}/sendDocument"`,
       { shell:'cmd.exe', timeout:30000 });
     ok('social_media.txt terkirim!');
   } catch(e) {}
@@ -769,7 +1458,7 @@ ${hashtags}
   log('╔══════════════════════════════════════════════════╗');
   log(`║  ✅  HARI ${String(hari).padStart(2,' ')} SELESAI!                            ║`);
   log(`║  📁  ${slugJudul.substring(0,40).padEnd(40,' ')}  ║`);
-  log(`║  🎬  ${(fs.statSync(finalVideo).size/(1024*1024)).toFixed(2)} MB | ${Math.floor(totalSec/60)}m${totalSec%60}s | ${clipPaths.length}/10 clips     ║`);
+  log(`║  🎬  ${(fs.statSync(finalVideo).size/(1024*1024)).toFixed(2)} MB | ${Math.floor(totalSec/60)}m${totalSec%60}s | ${clipPaths.length}/${SCRIPT.scenes.length} clips      ║`);
   log('╚══════════════════════════════════════════════════╝');
 
   return true;

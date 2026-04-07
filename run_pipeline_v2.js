@@ -323,67 +323,138 @@ async function generateScriptWithOpenAI(topic) {
 //  STEP 1: TTS — ElevenLabs (jika aktif) atau Edge TTS
 // ══════════════════════════════════════════════════════════════
 
+// ── ELEVENLABS VOICE ID TERBAIK UNTUK INDONESIA ───────────────────────────
+// Gunakan voice yang support eleven_multilingual_v2
+// Pilih salah satu dengan cara komentar/hapus yang tidak diinginkan:
+const EL_VOICES = {
+  adam:    'pNInz6obpgDQGcFmaJgB',  // Adam  — hangat, natural (default)
+  rachel:  '21m00Tcm4TlvDq8ikWAM',  // Rachel — bersih, profesional
+  sam:     'yoZ06aMxZJJ28mfd3POQ',  // Sam   — ramah, energik
+  bella:   'EXAVITQu4vr4xnSDxMaL',  // Bella  — ceria, cocok konten anak
+  elli:    'MF3mGyEYCl7XYWbV9V6O',  // Elli   — muda, ekspresif
+};
+// Aktifkan voice yang diinginkan di sini:
+const EL_VOICE_SELECTED = EL_VOICES.rachel; // ← GANTI sesuai preferensi
+
 // Cek apakah ElevenLabs aktif (tidak blocked)
 async function checkElevenLabs() {
-  if (!ELEVENLABS_KEY || ELEVENLABS_KEY.length < 10) return { ok: false, reason: 'no_key' };
+  if (!ELEVENLABS_KEY || ELEVENLABS_KEY.length < 10) {
+    warn('ELEVENLABS_API_KEY belum diset di env. Tambahkan di config/env_variables.txt');
+    return { ok: false, reason: 'no_key' };
+  }
   try {
-    // Coba endpoint voices (lebih ringan dari generate)
-    const res = await httpsGet('api.elevenlabs.io', '/v1/voices', { 'xi-api-key': ELEVENLABS_KEY });
-    if (res.status === 200) return { ok: true };
-    const msg = typeof res.body === 'object' ? res.body?.detail?.status || '' : '';
-    if (msg.includes('unusual_activity') || msg.includes('disabled')) {
-      return { ok: false, reason: 'blocked_unusual_activity' };
+    // Coba endpoint user/subscription (lebih informatif)
+    const res = await httpsGet('api.elevenlabs.io', '/v1/user/subscription', { 'xi-api-key': ELEVENLABS_KEY });
+    if (res.status === 200) {
+      const plan   = res.body?.tier || 'free';
+      const remain = res.body?.character_count !== undefined
+        ? `${res.body.character_limit - res.body.character_count} karakter tersisa`
+        : '';
+      ok(`ElevenLabs OK! Plan: ${plan}. ${remain}`);
+      return { ok: true, plan, remain };
     }
-    return { ok: false, reason: `status_${res.status}` };
-  } catch(e) { return { ok: false, reason: e.message.substring(0,50) }; }
+    if (res.status === 401) return { ok: false, reason: 'API key salah atau expired (401)' };
+    if (res.status === 403) return { ok: false, reason: 'Akun blocked/unusual activity (403)' };
+    const msg = typeof res.body === 'object' ? (res.body?.detail?.message || res.body?.detail?.status || '') : String(res.body).substring(0,80);
+    if (msg.includes('unusual_activity') || msg.includes('disabled')) {
+      return { ok: false, reason: `Akun ditandai unusual_activity — login ke elevenlabs.io dan verifikasi akun` };
+    }
+    return { ok: false, reason: `HTTP ${res.status}: ${msg}` };
+  } catch(e) { return { ok: false, reason: `Koneksi gagal: ${e.message.substring(0,80)}` }; }
 }
 
-async function generateTTSElevenLabs(text, destPath, voiceId = 'pNInz6obpgDQGcFmaJgB') {  // Adam — natural & hangat
+// Generate TTS dengan ElevenLabs — dilengkapi retry 2x
+async function generateTTSElevenLabs(text, destPath, voiceId) {
+  voiceId = voiceId || EL_VOICE_SELECTED;
+  const MAX_RETRY = 2;
+
+  for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
+    const result = await _elevenlabsTTSOnce(text, destPath, voiceId);
+    if (result.ok) return result;
+    if (attempt < MAX_RETRY) {
+      warn(`ElevenLabs attempt ${attempt} gagal: ${result.reason} → retry...`);
+      sleep(3000);
+    } else {
+      // Coba voice fallback (Rachel) jika voice utama error
+      if (voiceId !== EL_VOICES.rachel) {
+        warn(`Coba fallback voice Rachel...`);
+        const fallback = await _elevenlabsTTSOnce(text, destPath, EL_VOICES.rachel);
+        if (fallback.ok) return fallback;
+      }
+      return result;
+    }
+  }
+}
+
+async function _elevenlabsTTSOnce(text, destPath, voiceId) {
   return new Promise((resolve) => {
     const body = JSON.stringify({
       text,
       model_id: 'eleven_multilingual_v2',
-      voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0.3, use_speaker_boost: true }
+      voice_settings: {
+        stability: 0.55,          // sedikit lebih tinggi → lebih konsisten
+        similarity_boost: 0.80,   // mirip suara asli voice
+        style: 0.25,              // sedikit ekspresif tapi tidak berlebihan
+        use_speaker_boost: true   // aktifkan speaker boost untuk kualitas
+      }
     });
     const bodyBuf = Buffer.from(body, 'utf8');
     const req = https.request({
       hostname: 'api.elevenlabs.io',
-      path: `/v1/text-to-speech/${voiceId}`,
-      method: 'POST',
+      path:     `/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
+      method:   'POST',
       headers: {
-        'xi-api-key': ELEVENLABS_KEY,
-        'Content-Type': 'application/json',
-        'Accept': 'audio/mpeg',
+        'xi-api-key':     ELEVENLABS_KEY,
+        'Content-Type':   'application/json',
+        'Accept':         'audio/mpeg',
         'Content-Length': bodyBuf.length
       }
     }, (res) => {
       if (res.statusCode !== 200) {
-        let d = ''; res.on('data',c=>d+=c);
-        res.on('end', () => resolve({ ok: false, reason: `${res.statusCode}: ${d.substring(0,80)}` }));
+        let d = ''; res.on('data', c => d += c);
+        res.on('end', () => {
+          let reason = `HTTP ${res.statusCode}`;
+          try {
+            const parsed = JSON.parse(d);
+            reason += ': ' + (parsed?.detail?.message || parsed?.detail?.status || JSON.stringify(parsed).substring(0,80));
+          } catch(e) { reason += ': ' + d.substring(0,80); }
+          resolve({ ok: false, reason });
+        });
         return;
       }
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => {
         const buf = Buffer.concat(chunks);
-        if (buf.length < 1000) { resolve({ ok: false, reason: 'file terlalu kecil' }); return; }
+        if (buf.length < 1000) {
+          resolve({ ok: false, reason: `Response terlalu kecil (${buf.length} bytes) — kemungkinan bukan audio` });
+          return;
+        }
+        // Verifikasi magic bytes MP3 (ID3 atau 0xFF 0xFB)
+        const isMP3 = (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) || (buf[0] === 0xFF && (buf[1] & 0xE0) === 0xE0);
+        if (!isMP3) {
+          resolve({ ok: false, reason: 'Response bukan file MP3 valid' });
+          return;
+        }
         fs.writeFileSync(destPath, buf);
         resolve({ ok: true });
       });
     });
-    req.on('error', e => resolve({ ok: false, reason: e.message }));
+    req.on('error', e => resolve({ ok: false, reason: `Network error: ${e.message}` }));
+    req.setTimeout(30000, () => { req.destroy(); resolve({ ok: false, reason: 'Timeout 30 detik' }); });
     req.write(bodyBuf);
     req.end();
   });
 }
 
 function generateTTSEdge(text, destPath) {
+  const PYTHON  = 'C:/Users/user/AppData/Local/Programs/Python/Python312/python.exe';
   const txtFile = destPath.replace('.mp3', '_tmp.txt');
   fs.writeFileSync(txtFile, text, 'utf8');
   try {
     execSync(
-      `python -m edge_tts --voice "id-ID-ArdiNeural" --file "${txtFile}" --write-media "${destPath}"`,
-      { stdio:'pipe', timeout:60000 }
+      `"${PYTHON}" -m edge_tts --voice "id-ID-ArdiNeural" --file "${txtFile}" --write-media "${destPath}"`,
+      { stdio:'pipe', timeout:90000, shell:'cmd.exe' }
     );
     try { fs.unlinkSync(txtFile); } catch(e) {}
     return fs.existsSync(destPath) && fs.statSync(destPath).size > 500;
@@ -760,7 +831,7 @@ async function main() {
   info(`Groq key  : ${GROQ_KEY      ? '✅ ada' : '❌ tidak ada'}`);
   info(`Leonardo  : ${LEONARDO_KEY  ? '✅ ada' : '❌ tidak ada'}`);
   info(`Kling AI  : ${KLING_ACCESS  ? '✅ ada (motion utama)' : '— tidak ada (fallback Leonardo)'}`);
-  info(`ElevenLabs: ${ELEVENLABS_KEY ? '⚠️  ada (perlu cek)' : '—  skip (pakai Edge TTS)'}`);
+  info(`ElevenLabs: ${ELEVENLABS_KEY ? `✅ ada (voice: ${Object.keys(EL_VOICES).find(k => EL_VOICES[k] === EL_VOICE_SELECTED) || 'custom'})` : '—  skip (pakai Edge TTS)'}`);
   info(`Telegram  : ${TG_TOKEN && TG_TOKEN !== 'SKIP' ? '✅ aktif' : '— skip'}`);
   info(`Motion    : ${USE_MOTION ? (MOTION_ALL ? '✅ semua scene (--motion-all)' : '✅ key scenes 1,5,10') : '— dimatikan (--no-motion)'}`);
   info(`Topik     : ${CUSTOM_TOPIC || '(auto dari Groq)'}`);
@@ -830,15 +901,13 @@ async function main() {
   const scenesAudio = [];
   let totalAudioSec = 0;
 
-  // ElevenLabs voice ID untuk Indonesian (Adam / Rachel)
-  const EL_VOICE_ID = 'pNInz6obpgDQGcFmaJgB'; // Adam voice (sering lebih jelas)
-
   for (const s of SCRIPT.scenes) {
     const audioFile = `${TMP_AUDIO}/scene${s.n}.mp3`;
     let audioOk = false, duration = 0;
 
     if (useTTS === 'elevenlabs') {
-      const result = await generateTTSElevenLabs(s.narration, audioFile, EL_VOICE_ID);
+      // Gunakan EL_VOICE_SELECTED yang sudah didefinisikan di atas (bisa diganti)
+      const result = await generateTTSElevenLabs(s.narration, audioFile, EL_VOICE_SELECTED);
       if (result.ok) {
         audioOk = true;
         duration = getAudioDuration(audioFile);
@@ -1099,70 +1168,203 @@ async function main() {
 
   const tvMin = Math.floor(totalAudioSec / 60);
   const tvSec = String(totalAudioSec % 60).padStart(2,'0');
-  const narFull = SCRIPT.scenes.map(s => s.narration).join(' ');
-  const nar3    = SCRIPT.scenes.slice(0,3).map(s => s.narration).join(' ');
-  const allTags = [...(SCRIPT.hashtags || []), '#anakpintar','#edukasi','#faktaseru','#belajarsambilbermain','#videoedukasi'];
-  const uniqTags = [...new Set(allTags)];
-  const ttsMode  = useTTS === 'elevenlabs' ? 'ElevenLabs Premium' : 'Edge TTS (Ardi)';
+  const narFull  = SCRIPT.scenes.map(s => s.narration).join(' ');
+  const nar3     = SCRIPT.scenes.slice(0, 3).map(s => s.narration).join(' ');
+  const nar5     = SCRIPT.scenes.slice(0, 5).map(s => s.narration).join(' ');
+  const ttsMode  = useTTS === 'elevenlabs' ? `ElevenLabs Premium (${Object.keys(EL_VOICES).find(k=>EL_VOICES[k]===EL_VOICE_SELECTED)||'custom'})` : 'Edge TTS id-ID-ArdiNeural';
   const imgMode  = LEONARDO_KEY ? (USE_MOTION ? 'Leonardo Anime XL + Motion' : 'Leonardo Anime XL') : 'Picsum Fallback';
+  const voiceLabel = useTTS === 'elevenlabs' ? 'ElevenLabs Multilingual v2' : 'Microsoft Edge TTS Neural';
+
+  // ── Bangun hashtag lengkap (20–25 tag, campuran populer + niche) ──
+  const BASE_TAGS = [
+    '#shorts', '#fyp', '#foryou', '#foryoupage', '#viral', '#trending',
+    '#edukasi', '#edukasianak', '#anakpintar', '#belajarbersamaanak',
+    '#faktaseru', '#faktaunik', '#videoedukasi', '#kontenedukasi',
+    '#clayanimation', '#animasianak', '#videoanak', '#pendidikan',
+    '#belajarsambilbermain', '#indonesia'
+  ];
+  const allTags  = [...new Set([...(SCRIPT.hashtags || []), ...BASE_TAGS])];
+  const tags20   = allTags.slice(0, 20);  // YouTube max 15, Instagram max 30, TikTok max 20
+  const tags15   = allTags.slice(0, 15);
+  const tagsNiche = allTags.filter(t => !['#shorts','#fyp','#foryou','#foryoupage','#viral','#trending'].includes(t)).slice(0, 12);
+
+  // ── Scene highlight untuk deskripsi ──
+  const highlights = SCRIPT.scenes.slice(0, 5).map((s, i) => `  ${i+1}. ${s.narration.split('.')[0].trim()}.`).join('\n');
+
+  // ── Thumbnail ideas berdasarkan scene pertama & topik ──
+  const thumbScene1 = SCRIPT.scenes[0];
+  const thumbEmoji  = { excited:'🔥', curious:'🤔', wow:'😱', amazed:'✨', funny:'😂' }[thumbScene1?.emo] || '🎉';
+  const thumbColors = { animals:'Hijau & Orange', science:'Biru & Kuning', history:'Merah & Emas', nature:'Hijau & Biru' }[SCRIPT.genre] || 'Biru & Kuning';
 
   const socialLines = [
-    '═══════════════════════════════════════════════════',
-    `  📱 SOCIAL MEDIA KIT — ${dd}/${mm}/${yyyy}`,
-    `  📁 Folder  : ${slug}`,
-    `  🎬 Durasi  : ${tvMin}:${tvSec} (${totalAudioSec}s) | ${SCRIPT.scenes.length} scene`,
-    `  🎙️  TTS    : ${ttsMode}`,
-    `  🎨 Gambar  : ${imgMode}`,
-    `  ✅ Status  : ${renderOk ? 'RENDER SUKSES (' + sizeMb + ' MB)' : 'PERLU MANUAL RENDER'}`,
-    '═══════════════════════════════════════════════════',
+    '╔══════════════════════════════════════════════════════╗',
+    `║   📱 SOCIAL MEDIA KIT — ${dd}/${mm}/${yyyy}`,
+    `║   📁 Folder : ${slug}`,
+    `║   🎬 Durasi : ${tvMin}:${tvSec} (${totalAudioSec}s) | ${SCRIPT.scenes.length} scene`,
+    `║   🎙️  Voice  : ${ttsMode}`,
+    `║   🎨 Gambar : ${imgMode}`,
+    `║   ✅ Status : ${renderOk ? '🟢 RENDER SUKSES (' + sizeMb + ' MB)' : '🟡 PERLU MANUAL RENDER'}`,
+    '╚══════════════════════════════════════════════════════╝',
     '',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '  🎬 YOUTUBE / YOUTUBE SHORTS',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    // ────────────────────────────────────────────────────────
+    '┌──────────────────────────────────────────────────────┐',
+    '│  🖼️  THUMBNAIL IDEAS (Pilih salah satu)              │',
+    '└──────────────────────────────────────────────────────┘',
     '',
-    '[ JUDUL ]',
-    `A) ${SCRIPT.hook}`,
-    `B) ${SCRIPT.topic} | Video Edukasi Anak`,
-    `C) ${SCRIPT.hook} | Clay Animation Anak`,
+    `KONSEP A — TEKS BESAR + KARAKTER`,
+    `  Teks utama  : "${SCRIPT.hook.toUpperCase()}"`,
+    `  Sub-teks    : "Fakta Yang Mengejutkan!"`,
+    `  Karakter    : ${thumbScene1?.visual?.split(',')[0] || 'karakter clay lucu'} (ekspresi ${thumbScene1?.emo || 'excited'} ${thumbEmoji})`,
+    `  Background  : ${thumbColors} gradient cerah`,
+    `  Layout      : Karakter 60% kiri, teks 40% kanan, border thick putih`,
     '',
-    '[ DESKRIPSI ]',
-    SCRIPT.hook + '\n',
-    narFull.substring(0, 400),
+    `KONSEP B — CLOSE-UP EKSPRESIF`,
+    `  Teks utama  : "${SCRIPT.topic}"`,
+    `  Sub-teks    : "Episode ${dd} | #FaktaSeru"`,
+    `  Gaya        : Close-up wajah karakter, ekspresi besar`,
+    `  Background  : Warna solid ${thumbColors}, shadow dramatic`,
+    `  Font        : Bold caps, outline hitam tebal`,
     '',
-    uniqTags.join(' '),
+    `KONSEP C — SPLIT SCREEN`,
+    `  Kiri (50%)  : Before — pertanyaan "Tau nggak?"`,
+    `  Kanan (50%) : After  — reveal jawaban + karakter terkejut`,
+    `  Warna border: Merah tebal (click-bait friendly)`,
+    `  Teks hook   : "${SCRIPT.scenes[0]?.label || SCRIPT.hook}"`,
     '',
-    'Subscribe untuk video edukasi anak setiap hari! 🎓',
+    `TOOLS THUMBNAIL: Canva (template YouTube Shorts) | Adobe Express | CapCut`,
     '',
-    '[ TAGS ]',
-    uniqTags.map(h => h.replace('#','')).join(', '),
+    // ────────────────────────────────────────────────────────
+    '┌──────────────────────────────────────────────────────┐',
+    '│  🎬 YOUTUBE & YOUTUBE SHORTS                         │',
+    '└──────────────────────────────────────────────────────┘',
     '',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '  📸 INSTAGRAM / TIKTOK',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    '── JUDUL (pilih salah satu) ──',
+    `A) ${thumbEmoji} ${SCRIPT.hook}`,
+    `B) ${SCRIPT.topic} | Video Edukasi Anak Seru!`,
+    `C) ${thumbEmoji} ${SCRIPT.hook} | Clay Animation Kids`,
+    `D) Fakta Seru: ${SCRIPT.topic} yang Bikin Kamu Takjub! ${thumbEmoji}`,
     '',
-    `${SCRIPT.hook} 🎉`,
+    '── DESKRIPSI YOUTUBE (copy-paste langsung) ──',
     '',
-    nar3.substring(0, 250),
+    `${thumbEmoji} ${SCRIPT.hook}`,
     '',
-    uniqTags.slice(0,15).join(' '),
+    `Di video ini, anak-anak akan belajar tentang ${SCRIPT.topic} dengan cara yang seru dan menyenangkan! ${nar3.substring(0, 200).trim()}...`,
     '',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '  🎬 SCENE BREAKDOWN',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    `✅ APA YANG AKAN KAMU PELAJARI:`,
+    highlights,
+    '',
+    `🎯 Video ini cocok untuk:`,
+    `  • Anak usia 5–12 tahun`,
+    `  • Belajar sambil bermain`,
+    `  • Orang tua yang ingin edukasi seru untuk anak`,
+    `  • Guru dan pendidik PAUD/TK/SD`,
+    '',
+    `🔔 SUBSCRIBE & nyalakan notifikasi bel 🔔`,
+    `  → Agar tidak ketinggalan video edukasi seru setiap hari!`,
+    '',
+    `👇 TONTON VIDEO LAINNYA:`,
+    `  → Playlist: [tambahkan link playlist Anda]`,
+    '',
+    tags20.join(' '),
+    '',
+    '── TAGS YOUTUBE (pisahkan koma di kolom Tags) ──',
+    tags20.map(h => h.replace('#','')).join(', '),
+    '',
+    '── END SCREEN (saran) ──',
+    `  • 0:00–0:05  : Subscribe animation`,
+    `  • Akhir video: Rekomendasikan 2 video terkait`,
+    `  • Card popup : Di detik ke-5 dan pertengahan video`,
+    '',
+    // ────────────────────────────────────────────────────────
+    '┌──────────────────────────────────────────────────────┐',
+    '│  📸 INSTAGRAM (Feed & Reels)                         │',
+    '└──────────────────────────────────────────────────────┘',
+    '',
+    '── CAPTION INSTAGRAM ──',
+    '',
+    `${thumbEmoji} ${SCRIPT.hook}`,
+    '',
+    nar5.substring(0, 300).trim() + '...',
+    '',
+    `💡 Simpan video ini dan share ke teman-teman ya!`,
+    `👇 Tag siapa yang harus nonton ini?`,
+    '',
+    tags15.join(' '),
+    '',
+    '── ALT TEXT (untuk aksesibilitas) ──',
+    `Video animasi clay berjudul "${SCRIPT.topic}" untuk edukasi anak-anak.`,
+    '',
+    // ────────────────────────────────────────────────────────
+    '┌──────────────────────────────────────────────────────┐',
+    '│  🎵 TIKTOK                                           │',
+    '└──────────────────────────────────────────────────────┘',
+    '',
+    '── CAPTION TIKTOK ──',
+    '',
+    `${thumbEmoji} ${SCRIPT.hook} #fyp`,
+    '',
+    SCRIPT.scenes[0]?.narration?.substring(0, 150).trim() + '...',
+    '',
+    `Swipe up untuk lihat lebih! 👆`,
+    '',
+    tags20.slice(0, 20).join(' '),
+    '',
+    '── TIKTOK METADATA ──',
+    `  Judul video     : ${SCRIPT.topic}`,
+    `  Durasi ideal    : ${tvMin}:${tvSec} (Shorts <60s paling optimal)`,
+    `  Sound           : Gunakan trending sound/lagu anak di TikTok`,
+    `  Sticker/Effect  : Tambahkan sticker teks dan efek green screen`,
+    `  Best post time  : Senin–Jumat pukul 07:00–09:00 & 19:00–21:00 WIB`,
+    '',
+    // ────────────────────────────────────────────────────────
+    '┌──────────────────────────────────────────────────────┐',
+    '│  📊 META / SEO DATA                                  │',
+    '└──────────────────────────────────────────────────────┘',
+    '',
+    `Topik utama   : ${SCRIPT.topic}`,
+    `Genre konten  : ${SCRIPT.genre || 'edukasi'} | anak-anak | animasi`,
+    `Target usia   : 5–12 tahun (COPPA-safe)`,
+    `Bahasa        : Indonesia`,
+    `Durasi video  : ${tvMin} menit ${tvSec} detik`,
+    `Total scene   : ${SCRIPT.scenes.length}`,
+    `Tipe konten   : Edukasi animasi clay / Fakta seru`,
+    '',
+    `SEO Keywords  :`,
+    `  • ${SCRIPT.topic.toLowerCase()}`,
+    `  • video edukasi anak indonesia`,
+    `  • animasi clay anak`,
+    `  • belajar ${SCRIPT.genre || 'fakta'} untuk anak`,
+    `  • ${(tagsNiche.slice(0,5).map(t=>t.replace('#','')).join(', '))}`,
+    '',
+    `Kategori YT   : Education`,
+    `Lisensi       : Standard YouTube License`,
+    `Bahasa audio  : id-ID (Indonesia)`,
+    `Subtitle      : Tambahkan auto-subtitle YouTube untuk jangkauan lebih luas`,
+    '',
+    // ────────────────────────────────────────────────────────
+    '┌──────────────────────────────────────────────────────┐',
+    '│  🎬 SCENE BREAKDOWN                                  │',
+    '└──────────────────────────────────────────────────────┘',
     '',
     ...SCRIPT.scenes.map((s, i) => {
       const dur = scenesAudio[i]?.duration || s.dur;
-      const mv  = scenesImages[i]?.motionOk ? '[motion]' : '[static]';
-      return `Scene ${String(i+1).padStart(2,' ')} [${dur}s] ${mv}: ${s.narration.substring(0,65)}`;
+      const mv  = scenesImages[i]?.motionOk ? '[🎬motion]' : '[📷static]';
+      return `  Scene ${String(i+1).padStart(2,' ')} [${dur}s] ${mv}: ${s.narration.substring(0, 70)}`;
     }),
     '',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    `Generated : ${new Date().toISOString()}`,
-    `Pipeline  : v2 | ${SCRIPT.pipeline_id}`,
-    `Script AI : ${SCRIPT._source || 'fallback'}`,
-    `Video     : ${videoPath || 'N/A'}`,
-    `Ukuran    : ${sizeMb} MB`,
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    // ────────────────────────────────────────────────────────
+    '┌──────────────────────────────────────────────────────┐',
+    '│  ⚙️  PIPELINE INFO                                   │',
+    '└──────────────────────────────────────────────────────┘',
+    '',
+    `Generated  : ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB`,
+    `Pipeline   : v2 | ${SCRIPT.pipeline_id}`,
+    `Script AI  : ${SCRIPT._source || 'Groq llama-3.3-70b'}`,
+    `Voice AI   : ${voiceLabel}`,
+    `Image AI   : ${imgMode}`,
+    `Video path : ${videoPath || 'N/A'}`,
+    `File size  : ${sizeMb} MB`,
+    '─────────────────────────────────────────────────────',
   ];
 
   const socialPath = `${BUNDLE}/social_media.txt`;

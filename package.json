@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "edge-tts": "^1.0.1",
+    "msedge-tts": "^2.0.4"
+  }
+}
