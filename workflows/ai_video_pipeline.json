@@ -1,0 +1,314 @@
+{
+  "name": "AI Video Pipeline - Kids Edition v2 (Sync Audio)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "node-cron",
+      "name": "Cron - Harian 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        300
+      ],
+      "notes": "Trigger otomatis setiap hari jam 08:00."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"model\":\"gpt-4o-mini\",\"temperature\":0.85,\"max_tokens\":4000,\"messages\":[{\"role\":\"system\",\"content\":\"Kamu adalah penulis script video edukasi anak yang kreatif dan detail. Setiap scene harus memiliki narasi yang CUKUP PANJANG (3-4 kalimat, 35-50 kata) agar durasi audio 12-15 detik per scene. Response HARUS JSON valid tanpa markdown atau code block.\"},{\"role\":\"user\",\"content\":\"Buat script video edukasi anak menarik (10 scene, total 120-150 detik) tentang fakta unik gajah Afrika yang menakjubkan.\\n\\nATURAN PENTING:\\n- Topik HARUS tentang GAJAH (gajah Afrika, fakta seru gajah)\\n- Setiap narasi: 3-4 kalimat, 35-50 kata, bahasa Indonesia sederhana\\n- Durasi per scene 12-15 detik (sesuai panjang narasi 35-50 kata)\\n- Alur berurutan: perkenalan → badan → telinga → belalai → gigi → keluarga → kecerdasan → komunikasi → mandi → ajakan jaga gajah\\n- Setiap visual_note WAJIB menyebut GAJAH dan karakter clay sayuran/buah yang berinteraksi dengan gajah\\n- Bahasa sederhana dan menyenangkan untuk anak usia 5-12 tahun\\n\\nFormat JSON:\\n{\\n  \\\"topic\\\": \\\"Fakta Seru Gajah Afrika yang Menakjubkan\\\",\\n  \\\"genre\\\": \\\"animals\\\",\\n  \\\"hook\\\": \\\"Gajah Afrika punya rahasia luar biasa!\\\",\\n  \\\"scenes\\\": [\\n    {\\n      \\\"scene_number\\\": 1,\\n      \\\"duration_sec\\\": 13,\\n      \\\"narration\\\": \\\"narasi 3-4 kalimat 35-50 kata tentang gajah yang diucapkan narator\\\",\\n      \\\"on_screen_text\\\": \\\"FAKTA SERU GAJAH!\\\",\\n      \\\"emotion\\\": \\\"excited|curious|wow|funny|amazed\\\",\\n      \\\"visual_note\\\": \\\"deskripsi DETAIL: gajah clay besar + karakter sayuran/buah clay + aksi spesifik + latar belakang cerah\\\"\\n    }\\n  ],\\n  \\\"hashtags\\\": [\\\"#gajah\\\",\\\"#anakpintar\\\",\\\"#edukasi\\\",\\\"#faktaseru\\\",\\\"#shorts\\\",\\\"#fyp\\\",\\\"#belajar\\\"]\\n}\\n\\nBuat TEPAT 10 scene, alur cerita mengalir dari awal sampai akhir, setiap scene ada interaksi karakter clay sayuran dengan gajah clay.\"}]}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "node-openai",
+      "name": "OpenAI - Generate Script Anak",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "notes": "GPT-4o-mini: script 10 scene, narasi pendek per scene, alur cerita berurutan."
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nif (!raw.choices || !raw.choices[0]) throw new Error('[SPLIT] OpenAI gagal: ' + JSON.stringify(raw).substring(0, 200));\nconst content = raw.choices[0].message.content.trim();\n\n// Buat pipeline_id dari tanggal\nconst now = new Date();\nconst dd   = String(now.getDate()).padStart(2,'0');\nconst mm   = String(now.getMonth()+1).padStart(2,'0');\nconst yyyy = now.getFullYear();\nconst pipeline_id = `video_${yyyy}${mm}${dd}`;\n\nlet script;\ntry {\n  // Hapus markdown wrapper jika ada\n  const cleaned = content\n    .replace(/^```json\\s*/i,'')\n    .replace(/^```\\s*/i,'')\n    .replace(/\\s*```$/i,'')\n    .trim();\n  script = JSON.parse(cleaned);\n} catch(e) {\n  console.warn('[SPLIT] JSON parse gagal, gunakan fallback');\n  script = {\n    topic: 'Fakta Seru Gajah Afrika yang Menakjubkan',\n    genre: 'animals',\n    hook: 'Gajah Afrika punya rahasia luar biasa!',\n    scenes: [\n      { scene_number:1, duration_sec:13, emotion:'excited',\n        narration: 'Halo teman-teman! Tahukah kalian bahwa gajah Afrika adalah hewan darat terbesar di seluruh dunia? Gajah dewasa bisa memiliki berat hingga enam ton, seberat dua mobil truk besar! Sungguh menakjubkan bukan?',\n        on_screen_text: 'GAJAH TERBESAR DI DUNIA!',\n        visual_note: 'Gajah Afrika clay raksasa berwarna abu-abu berdiri gagah di savana, karakter wortel clay pakai topi safari berdiri di samping kaki gajah sambil menunjuk ke atas dengan ekspresi takjub, pohon akasia clay di latar belakang, langit biru cerah' },\n      { scene_number:2, duration_sec:13, emotion:'wow',\n        narration: 'Lihat telinga gajah yang sangat besar itu! Telinga gajah Afrika bisa selebar dua meter, hampir sebesar pintu rumah kita. Gajah menggunakan telinganya seperti kipas untuk mendinginkan tubuhnya di hari yang panas terik.',\n        on_screen_text: 'TELINGA RAKSASA!',\n        visual_note: 'Gajah clay close-up kepala dengan telinga lebar terentang seperti sayap, karakter brokoli clay berkacamata mengukur telinga gajah dengan meteran raksasa, background savana siang hari cerah penuh warna' },\n      { scene_number:3, duration_sec:13, emotion:'curious',\n        narration: 'Belalai gajah adalah alat paling serbaguna di dunia hewan! Di dalam belalai panjang itu terdapat lebih dari empat puluh ribu otot yang bekerja bersama-sama. Gajah bisa mengangkat benda berat dan mengambil kacang kecil sekaligus!',\n        on_screen_text: 'BELALAI SUPER KUAT!',\n        visual_note: 'Gajah clay menggunakan belalai untuk mengambil buah semangka raksasa, karakter jagung clay berjas putih dokter memeriksa belalai gajah dengan stetoskop, background laboratorium alam terbuka yang cerah dan berwarna-warni' },\n      { scene_number:4, duration_sec:13, emotion:'amazed',\n        narration: 'Gigi gading gajah bukan sekadar hiasan! Gading adalah gigi taring yang terus tumbuh sepanjang hidup gajah. Gajah menggunakan gadingnya untuk menggali tanah mencari air, mengupas kulit pohon, dan melindungi diri dari bahaya.',\n        on_screen_text: 'GADING AJAIB!',\n        visual_note: 'Gajah clay besar menggali tanah dengan gading putih berkilau, karakter tomat clay merah pakai helm arkeolog mengamati dengan kaca pembesar, tanah clay berwarna coklat dengan lapisan biru menandakan air di bawah' },\n      { scene_number:5, duration_sec:14, emotion:'funny',\n        narration: 'Bayi gajah adalah makhluk paling menggemaskan! Saat lahir, bayi gajah sudah seberat seratus kilogram, hampir seberat dua orang dewasa. Yang lucu, bayi gajah butuh waktu berbulan-bulan untuk bisa mengendalikan belalainya sendiri!',\n        on_screen_text: 'BAYI GAJAH LUCU!',\n        visual_note: 'Bayi gajah clay kecil menggemaskan dengan belalai menjulur ke sana-sini tidak terkendali, karakter strawberry clay merah muda tertawa sambil memeluk kaki bayi gajah, ibu gajah clay besar menunggui di belakang dengan senyum lebar' },\n      { scene_number:6, duration_sec:13, emotion:'wow',\n        narration: 'Tahukah kamu, gajah bisa berkomunikasi dengan suara yang tidak bisa kita dengar! Gajah menggunakan gelombang infrasonik yang bisa terdengar hingga sepuluh kilometer jauhnya. Mereka juga bisa merasakan getaran tanah melalui telapak kaki mereka!',\n        on_screen_text: 'KOMUNIKASI RAHASIA!',\n        visual_note: 'Gajah clay bersuara dengan gelombang suara animasi warna-warni keluar dari mulutnya, karakter mentimun clay pakai headphone besar mencoba mendengar, gajah lain di kejauhan merespons, visual gelombang suara seperti pelangi' },\n      { scene_number:7, duration_sec:13, emotion:'curious',\n        narration: 'Gajah adalah salah satu hewan paling cerdas di dunia! Mereka bisa mengenali wajah diri sendiri di cermin, sama seperti manusia. Gajah juga memiliki ingatan yang luar biasa kuat dan bisa mengingat teman serta jalan pulang selama puluhan tahun!',\n        on_screen_text: 'GAJAH SUPER CERDAS!',\n        visual_note: 'Gajah clay berdiri di depan cermin besar berbingkai emas memandangi refleksinya dengan ekspresi takjub, karakter wortel clay pakai toga wisuda dengan papan nilai A+ bangga di samping, perpustakaan alam terbuka dengan buku-buku clay berwarna' },\n      { scene_number:8, duration_sec:13, emotion:'amazed',\n        narration: 'Kawanan gajah selalu dipimpin oleh matriark, yaitu gajah betina tertua dan paling bijaksana. Dia yang memimpin perjalanan mencari air dan makanan. Semua gajah dalam kawanan saling menjaga dan melindungi satu sama lain seperti keluarga yang solid!',\n        on_screen_text: 'KELUARGA GAJAH!',\n        visual_note: 'Kawanan gajah clay berbaris dipimpin gajah betina tua besar dengan mahkota clay kecil, karakter paprika merah clay sebagai reporter mewawancarai gajah pemimpin, padang savana clay hijau luas dengan sungai biru berkilau di latar' },\n      { scene_number:9, duration_sec:13, emotion:'funny',\n        narration: 'Gajah sangat suka mandi dan bermain air! Mereka bisa menyedot air hingga dua belas liter sekali hisap menggunakan belalainya. Setelah mandi, gajah suka melumuri tubuhnya dengan lumpur untuk melindungi kulit dari sengatan matahari, persis seperti tabir surya!',\n        on_screen_text: 'MANDI LUMPUR SERU!',\n        visual_note: 'Gajah clay riang bermain semprotan air dari belalai di sungai, lumpur coklat menempel di tubuhnya, karakter lemon clay kuning pakai baju renang tertawa kecipratan air, matahari clay bersenyum di langit biru dengan awan putih mengembang' },\n      { scene_number:10, duration_sec:13, emotion:'excited',\n        narration: 'Gajah adalah hewan yang luar biasa dan harus kita lindungi bersama! Sayangnya, gajah kini terancam punah karena kehilangan habitat dan perburuan. Dengan belajar dan mencintai gajah, kita semua bisa ikut menjaga mereka tetap hidup di bumi kita!',\n        on_screen_text: 'JAGA GAJAH KITA!',\n        visual_note: 'Gajah clay besar tersenyum bahagia dikelilingi karakter sayuran clay gembira: wortel brokoli tomat jagung bergandengan tangan melingkari gajah, spanduk clay bertulis cinta gajah, hutan hijau subur dengan sinar matahari keemasan indah' }\n    ],\n    hashtags: ['#gajah','#gajahahrika','#anakpintar','#edukasi','#faktaseru','#shorts','#fyp','#belajar']\n  };\n}\n\n// Validasi dan normalisasi 10 scene\nconst TARGET = 10;\nconst rawScenes = script.scenes || [];\nconst scenes = rawScenes.slice(0, TARGET).map((s, idx) => ({\n  scene_number:   s.scene_number  || idx + 1,\n  duration_sec:   s.duration_sec  || 11,\n  narration:      (s.narration    || `Scene ${idx+1}`).trim(),\n  on_screen_text: (s.on_screen_text || 'FAKTA SERU!').toUpperCase().trim(),\n  emotion:        s.emotion       || 'excited',\n  visual_note:    s.visual_note   || s.narration || ''\n}));\n\n// Tambah scene jika kurang dari 10\nwhile (scenes.length < TARGET) {\n  const idx = scenes.length;\n  scenes.push({\n    scene_number:   idx + 1,\n    duration_sec:   11,\n    narration:      `Fakta seru ke-${idx+1} yang akan mengejutkan kamu!`,\n    on_screen_text: 'FAKTA SERU!',\n    emotion:        'excited',\n    visual_note:    'Karakter wortel lucu melompat kegirangan'\n  });\n}\n\n// Buat slug judul untuk nama folder (aman untuk filesystem)\nfunction slugify(str) {\n  return str\n    .toLowerCase()\n    .replace(/[^a-z0-9\\s]/g,'')\n    .trim()\n    .replace(/\\s+/g,'_')\n    .substring(0, 30);\n}\nconst topicSlug     = slugify(script.topic || 'fakta_seru');\nconst folderName    = `${topicSlug}_${dd}_${mm}_${yyyy}`;\nconst totalDuration = scenes.reduce((s,c) => s + c.duration_sec, 0);\n\nconsole.log(`[SPLIT] Topic: ${script.topic} | ${scenes.length} scenes | ~${totalDuration}s | Folder: ${folderName}`);\n\nreturn { json: {\n  pipeline_id,\n  folder_name:      folderName,\n  topic:            script.topic,\n  genre:            script.genre || 'animals',\n  hook:             script.hook  || '',\n  hashtags:         script.hashtags || ['#shorts','#fyp'],\n  total_duration:   totalDuration,\n  total_scenes:     scenes.length,\n  scenes,\n  audio_filename:   `${pipeline_id}_narration.mp3`,\n  video_filename:   `${pipeline_id}_final.mp4`\n}};"
+      },
+      "id": "node-fn-split",
+      "name": "Function - Split Scene",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ],
+      "notes": "Parse JSON OpenAI, buat folder_name = judul_dd_mm_yyyy, validasi 10 scene."
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst CLAY_STYLE = [\n  'clay animation style, 3D render, cute chibi character',\n  'soft plasticine texture, bright cheerful colors',\n  'child-friendly kawaii style, smooth shiny surface',\n  'studio lighting, clean background, 8K quality render',\n  'portrait 9:16 aspect ratio, no text, no watermark',\n  'professional animation quality, vibrant color palette'\n].join(', ');\n\n// Karakter sayuran/buah per genre - tiap genre punya 10 karakter unik\nconst CHARS = {\n  animals:  ['wortel explorer pakai topi safari','brokoli ilmuwan berkacamata',\n              'tomat petualang pakai ransel','jagung detektif pakai kaca pembesar',\n              'strawberry professor jubah ungu','mentimun fotografer pakai kamera',\n              'labu oranye pahlawan hutan','paprika merah penyelamat hewan',\n              'bayam hijau dokter hewan','pisang kuning reporter lucu'],\n  science:  ['brokoli ilmuwan jas laboratorium','wortel penemu pakai goggle',\n              'labu oranye kimiawan','terong ungu astronot','lemon kuning insinyur',\n              'kentang coklat fisikawan','kol hijau matematikawan','bawang putih ahli kimia',\n              'cabai merah roket scientist','jamur coklat ahli biologi'],\n  nature:   ['bunga matahari peri sayap','wortel penjaga hutan','jamur pemandu alam',\n              'apel merah ahli botani','pir hijau pahlawan lingkungan','mangga kuning penjelajah',\n              'kelapa coklat peneliti pantai','semangka merah pecinta alam',\n              'anggur ungu fotografer alam','durian berduri petualang hutan'],\n  space:    ['terong ungu astronot baju luar angkasa','wortel penjelajah angkasa',\n              'brokoli pilot roket','labu oranye teman alien','jagung kuning kosmonot',\n              'tomat merah ahli planet','paprika hijau peneliti bintang','pisang kuning teleskop',\n              'kentang antariksawan','bayam hijau komandan misi'],\n  ocean:    ['mentimun pelaut topi putih','wortel penyelam tabung oksigen',\n              'tomat kapten kapal selam','jagung nelayan jaring','zucchini biolog laut',\n              'brokoli explorer bawah laut','paprika kuning fotografer laut',\n              'lemon kuning peneliti terumbu','apel merah kapten kapal','mangga perenang olimpiade'],\n  dinosaur: ['wortel paleontolog topi lapangan','brokoli penunggang dinosaurus',\n              'tomat pelancong waktu','jagung arkeolog sekop','kentang pemburu fosil',\n              'labu oranye ahli dinosaurus','cabai merah pemburu tulang','apel peneliti purba',\n              'pisang penjelajah zaman prasejarah','mangga pembuat museum dinosaurus']\n};\n\n// Lingkungan per genre\nconst ENVS = {\n  animals:  ['savana berwarna dengan pohon clay','hutan ajaib tanaman berkilau',\n              'kebun binatang lucu penuh warna','padang rumput hijau cerah',\n              'lembah bunga bermekaran indah','sungai biru jernih berkilau',\n              'bukit hijau dengan awan putih','gua kristal berwarna-warni',\n              'pantai tropis pasir putih','taman nasional hutan lebat'],\n  science:  ['laboratorium cerah gelembung berwarna','museum sains model raksasa',\n              'stasiun riset futuristik','kelas sains penuh poster','ruang percobaan meriah',\n              'pabrik inovasi modern','perpustakaan sains digital','observatorium bintang',\n              'pusat teknologi canggih','taman riset outdoor cerah'],\n  nature:   ['taman bunga raksasa pesona','padang pelangi serangga bersahabat',\n              'gua kristal berwarna ajaib','hutan bambu hijau sejuk','danau biru kaca cermin',\n              'lembah lavender ungu indah','gunung hijau selimut awan','rawa bercahaya sihir',\n              'taman buah tropis lebat','hutan perawan hijau subur'],\n  space:    ['galaksi permen warna-warni','stasiun luar angkasa jendela bulat',\n              'permukaan bulan bumi di belakang','nebula merah muda bercahaya',\n              'asteroid belt berwarna','planet melayang seperti permen','supernova spektakuler',\n              'orbit bumi dari luar angkasa','komet bercahaya melintas','markas antariksa modern'],\n  ocean:    ['terumbu karang neon penuh ikan','laut dalam bioluminescent',\n              'interior kapal selam berwarna','pantai kristal jernih','taman bawah laut tropis',\n              'gua bawah laut bercahaya','padang lamun hijau lembut','ngarai laut misterius',\n              'permukaan laut berkilau','pasar ikan bawah laut lucu'],\n  dinosaur: ['hutan purba pakis raksasa','taman dinosaurus clay dino',\n              'lansekap vulkanik dino lucu','danau prasejarah berkabut','padang rumput zaman purba',\n              'gua batu masa dinosaurus','hutan tropis prasejarah lebat','pegunungan berapi purba',\n              'delta sungai prasejarah','museum dinosaurus interaktif']\n};\n\nconst EMOTIONS = {\n  excited: 'mata besar berbinar, senyum lebar, tangan terangkat, pose melompat kegirangan',\n  curious: 'kepala miring, alis terangkat satu, jari di dagu, pose berpikir penasaran',\n  wow:     'mulut terbuka lebar terkejut, bintang di mata, jari menunjuk, ekspresi takjub',\n  funny:   'tertawa terbahak-bahak, air mata bahagia, memegang perut, pose lucu menggemaskan',\n  amazed:  'beku terpesona, kilatan cahaya di sekeliling, mata bersinar, pose terkagum-kagum'\n};\n\nconst charList = CHARS[data.genre] || CHARS.animals;\nconst envList  = ENVS[data.genre]  || ENVS.animals;\n\nconst scenes = data.scenes.map((scene, idx) => {\n  const char    = charList[idx % charList.length];\n  const env     = envList[idx % envList.length];\n  const emotion = EMOTIONS[scene.emotion] || EMOTIONS.excited;\n  \n  // Ambil detail visual dari visual_note scene, atau dari narasi jika kosong\n  const visualDetail = (scene.visual_note && scene.visual_note.length > 10)\n    ? scene.visual_note.substring(0, 100)\n    : scene.narration.substring(0, 80);\n\n  const prompt = [\n    `karakter ${char},`,\n    `ekspresi: ${emotion},`,\n    `adegan: ${visualDetail},`,\n    `latar: ${env},`,\n    CLAY_STYLE\n  ].join(' ');\n\n  return {\n    ...scene,\n    image_prompt:    prompt,\n    image_filename:  `scene${scene.scene_number}.jpg`,\n    image_url:       null\n  };\n});\n\nconsole.log(`[PROMPT] ${scenes.length} prompts disiapkan, genre: ${data.genre}`);\nscenes.forEach((s,i) => console.log(`  Scene ${i+1}: ${s.image_prompt.substring(0,80)}...`));\n\nreturn { json: { ...data, scenes, prompts_ready: true } };"
+      },
+      "id": "node-fn-prompt",
+      "name": "Function - Generate Prompt Clay",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        300
+      ],
+      "notes": "Buat prompt detail untuk tiap scene: karakter clay sayuran/buah + emosi + visual + latar."
+    },
+    {
+      "parameters": {
+        "jsCode": "const { execSync } = require('child_process');\nconst fs   = require('fs');\nconst path = require('path');\nconst data = $input.first().json;\n\n// ── KONFIGURASI ────────────────────────────────────────────\nconst LEONARDO_KEY = process.env.LEONARDO_API_KEY || '';\nconst BASE_DIR     = 'E:/tutorial_n8n/output';\nconst BUNDLE       = `${BASE_DIR}/${data.folder_name}`;\nconst IMG_DIR      = `${BUNDLE}/_tmp_images`;\nfs.mkdirSync(IMG_DIR, { recursive: true });\n\n// ── HELPER: Node HTTP request ───────────────────────────────\nfunction httpPost(url, payload, headers) {\n  const jsonPayload = JSON.stringify(payload).replace(/\"/g, '\\\\\"');\n  const headerArgs  = Object.entries(headers).map(([k,v]) => `-H \"${k}: ${v}\"`).join(' ');\n  const curlCmd     = `curl -s -X POST ${headerArgs} -d \"${jsonPayload}\" \"${url}\"`;\n  try {\n    const out = execSync(curlCmd, { encoding:'utf8', timeout:30000, shell:'cmd.exe' });\n    return JSON.parse(out);\n  } catch(e) {\n    return { error: e.message };\n  }\n}\n\nfunction httpGet(url, headers) {\n  const headerArgs = Object.entries(headers).map(([k,v]) => `-H \"${k}: ${v}\"`).join(' ');\n  const curlCmd    = `curl -s -X GET ${headerArgs} \"${url}\"`;\n  try {\n    const out = execSync(curlCmd, { encoding:'utf8', timeout:30000, shell:'cmd.exe' });\n    return JSON.parse(out);\n  } catch(e) {\n    return { error: e.message };\n  }\n}\n\nfunction downloadFile(url, destPath) {\n  const cmd = `curl -s -L -o \"${destPath}\" \"${url}\"`;\n  try {\n    execSync(cmd, { timeout:60000, shell:'cmd.exe' });\n    return fs.existsSync(destPath) && fs.statSync(destPath).size > 2000;\n  } catch(e) { return false; }\n}\n\n// ── GENERATE GAMBAR PER SCENE ────────────────────────────────\n// KUNCI: setiap scene punya prompt sendiri → gambar sesuai cerita\nconst CLAY_NEG = 'blurry, low quality, ugly, scary, violent, realistic photo, dark, horror, text, watermark, logo, adult content, nsfw, bad anatomy, deformed, extra limbs';\n\nconst scenes = data.scenes || [];\nconst scenesWithImages = [];\n\nfor (let i = 0; i < scenes.length; i++) {\n  const scene = scenes[i];\n  const imgPath = path.join(IMG_DIR, `scene${scene.scene_number}.jpg`).replace(/\\\\/g,'/');\n  \n  // Prompt per scene: gabung CLAY_STYLE + visual_note spesifik scene\n  const visualDetail = (scene.visual_note || scene.narration || '').substring(0, 300);\n  const scenePrompt  = [\n    visualDetail + ',',\n    'clay animation style, 3D render, cute chibi character,',\n    'soft plasticine texture, bright cheerful colors, child-friendly kawaii style,',\n    'smooth shiny clay surface, studio lighting, clean colorful background,',\n    'portrait 9:16 vertical orientation, professional kids animation quality,',\n    'vibrant color palette, no text, no watermark, no logo'\n  ].join(' ');\n  \n  console.log(`[LEONARDO] Scene ${scene.scene_number}/${scenes.length}: ${visualDetail.substring(0,60)}...`);\n  \n  let imgUrl    = null;\n  let imgOk     = false;\n  let genError  = null;\n  \n  if (LEONARDO_KEY && LEONARDO_KEY.length > 10) {\n    try {\n      // Step 1: Request generate\n      const genBody = {\n        prompt:             scenePrompt.substring(0, 900),\n        negative_prompt:    CLAY_NEG,\n        modelId:            'b24e16ff-06e3-43eb-8d33-4416c2d75876',\n        width:              576,\n        height:             1024,\n        num_images:         1,\n        guidance_scale:     7,\n        num_inference_steps: 25,\n        public:             false,\n        photoReal:          false,\n        alchemy:            false\n      };\n      \n      const genHeaders = {\n        'Authorization': `Bearer ${LEONARDO_KEY}`,\n        'Content-Type':  'application/json'\n      };\n      \n      const genRes = httpPost('https://cloud.leonardo.ai/api/rest/v1/generations', genBody, genHeaders);\n      \n      if (genRes.sdGenerationJob && genRes.sdGenerationJob.generationId) {\n        const genId = genRes.sdGenerationJob.generationId;\n        console.log(`[LEONARDO] Scene ${scene.scene_number} genId: ${genId}`);\n        \n        // Step 2: Poll sampai selesai (max 60 detik)\n        let pollAttempts = 0;\n        while (pollAttempts < 12) {\n          pollAttempts++;\n          // Tunggu 5 detik\n          execSync('ping -n 6 127.0.0.1 > nul', { timeout:10000, shell:'cmd.exe' });\n          \n          const pollRes = httpGet(\n            `https://cloud.leonardo.ai/api/rest/v1/generations/${genId}`,\n            genHeaders\n          );\n          \n          const imgs = pollRes.generations_by_pk?.generated_images || [];\n          if (imgs.length > 0 && imgs[0].url) {\n            imgUrl = imgs[0].url;\n            console.log(`[LEONARDO] Scene ${scene.scene_number} URL: ${imgUrl.substring(0,60)}...`);\n            break;\n          }\n          console.log(`[LEONARDO] Scene ${scene.scene_number} poll ${pollAttempts}/12 menunggu...`);\n        }\n      } else {\n        genError = JSON.stringify(genRes).substring(0, 150);\n        console.warn(`[LEONARDO] Scene ${scene.scene_number} generate error:`, genError);\n      }\n    } catch(e) {\n      genError = e.message.substring(0, 150);\n      console.warn(`[LEONARDO] Scene ${scene.scene_number} exception:`, genError);\n    }\n  } else {\n    console.warn('[LEONARDO] API key tidak ada, pakai picsum fallback');\n  }\n  \n  // Download gambar\n  if (imgUrl) {\n    imgOk = downloadFile(imgUrl, imgPath);\n    if (!imgOk) console.warn(`[LEONARDO] Scene ${scene.scene_number} download gagal, pakai fallback`);\n  }\n  \n  // Fallback: picsum dengan seed unik per scene (gambar alam yang beragam)\n  if (!imgOk) {\n    const seed    = `${data.pipeline_id}_scene${scene.scene_number}_${scene.emotion}`;\n    const fallUrl = `https://picsum.photos/seed/${encodeURIComponent(seed)}/576/1024`;\n    imgOk = downloadFile(fallUrl, imgPath);\n    if (imgOk) console.log(`[LEONARDO] Scene ${scene.scene_number} fallback picsum OK`);\n    else console.error(`[LEONARDO] Scene ${scene.scene_number} SEMUA download gagal`);\n  }\n  \n  scenesWithImages.push({\n    ...scene,\n    image_url:    imgOk ? imgPath : (imgUrl || ''),\n    image_path:   imgPath,\n    image_local:  imgOk,\n    image_prompt: scene.image_prompt || '',\n    gen_error:    genError\n  });\n  \n  // Jeda antar scene untuk hindari rate limit Leonardo\n  if (i < scenes.length - 1 && LEONARDO_KEY && LEONARDO_KEY.length > 10) {\n    execSync('ping -n 4 127.0.0.1 > nul', { timeout:8000, shell:'cmd.exe' });\n  }\n}\n\nconst okCount = scenesWithImages.filter(s => s.image_local).length;\nconsole.log(`[LEONARDO] Selesai: ${okCount}/${scenes.length} gambar berhasil`);\n\nreturn { json: {\n  ...data,\n  scenes:       scenesWithImages,\n  bundle_dir:   BUNDLE,\n  images_dir:   IMG_DIR,\n  images_ready: true,\n  images_ok:    okCount\n}};"
+      },
+      "id": "node-http-image",
+      "name": "HTTP Request - Leonardo AI Images",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1160,
+        300
+      ],
+      "notes": "Generate gambar SATU PER SATU per scene dengan prompt unik. Clay style diperkuat. Fallback picsum."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pass-through: data gambar sudah diproses di node sebelumnya\n// Node ini hanya memverifikasi dan log status gambar\nconst data = $input.first().json;\nconst fs   = require('fs');\n\nconst scenes = data.scenes || [];\nlet okCount  = 0;\n\nfor (const s of scenes) {\n  const exists = s.image_local && s.image_path && fs.existsSync(s.image_path);\n  if (exists) okCount++;\n  console.log(`[VERIFY] Scene ${s.scene_number}: ${exists ? '✅ OK' : '⚠️ missing'} - ${(s.image_path||'').substring(40)}`);\n}\n\nconsole.log(`[VERIFY] ${okCount}/${scenes.length} gambar siap`);\nreturn { json: { ...data, images_verified: okCount, images_ready: okCount > 0 } };"
+      },
+      "id": "node-fn-image-proc",
+      "name": "Function - Process & Download Images",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        300
+      ],
+      "notes": "Verifikasi gambar hasil download dari node Leonardo. Pass-through data."
+    },
+    {
+      "parameters": {
+        "jsCode": "const { execSync } = require('child_process');\nconst fs   = require('fs');\nconst path = require('path');\nconst data = $input.first().json;\n\nconst BUNDLE    = data.bundle_dir || `E:/tutorial_n8n/output/${data.folder_name}`;\nconst AUDIO_DIR = `${BUNDLE}/_tmp_audio`;\nfs.mkdirSync(AUDIO_DIR, { recursive: true });\n\n// Voice Indonesia yang jernih untuk anak-anak\n// id-ID-ArdiNeural  = suara remaja laki (ceria)\n// id-ID-GadisNeural = suara perempuan muda (ramah)\nconst VOICE  = 'id-ID-ArdiNeural';\n\n// FFPROBE untuk detect durasi\nconst FFPROBE = 'C:/Users/User/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.1-full_build/bin/ffprobe.exe';\n\nfunction getAudioDuration(filePath) {\n  try {\n    if (!fs.existsSync(FFPROBE)) return 0;\n    const out = execSync(\n      `\"${FFPROBE}\" -v quiet -show_entries format=duration -of csv=p=0 \"${filePath}\"`,\n      { encoding:'utf8', timeout:8000 }\n    );\n    return Math.round(parseFloat(out.trim()) * 10) / 10; // 1 desimal\n  } catch(e) { return 0; }\n}\n\n// Generate audio SATU PER SATU untuk tiap scene\n// KUNCI SINKRONISASI: durasi video scene = durasi audio scene\nconst scenesWithAudio = [];\nlet totalAudioSec = 0;\nlet audioErrors   = 0;\n\nfor (const scene of data.scenes) {\n  const txtPath   = path.join(AUDIO_DIR, `scene${scene.scene_number}_tmp.txt`).replace(/\\\\/g,'/');\n  const audioPath = path.join(AUDIO_DIR, `scene${scene.scene_number}.mp3`).replace(/\\\\/g,'/');\n  \n  // Tulis narasi ke file txt\n  fs.writeFileSync(txtPath, scene.narration, 'utf8');\n  \n  let audioOk  = false;\n  let duration = 0;\n  \n  try {\n    execSync(\n      `python -m edge_tts --voice \"${VOICE}\" --file \"${txtPath}\" --write-media \"${audioPath}\"`,\n      { stdio:'pipe', timeout:60000 }\n    );\n    audioOk  = fs.existsSync(audioPath) && fs.statSync(audioPath).size > 500;\n    duration = audioOk ? getAudioDuration(audioPath) : 0;\n    if (!duration || duration < 1) duration = scene.narration.split(' ').length * 0.45; // estimasi\n    duration = Math.max(12, Math.ceil(duration + 0.8)); // min 12 detik, buffer 0.8s\n  } catch(e) {\n    console.error(`[TTS] Scene ${scene.scene_number} error:`, e.message.substring(0,100));\n    audioErrors++;\n    duration = 10; // fallback durasi\n  }\n  \n  // Hapus file txt temporary\n  try { fs.unlinkSync(txtPath); } catch(e) {}\n  \n  const kb = audioOk ? Math.round(fs.statSync(audioPath).size / 1024) : 0;\n  console.log(`[TTS] Scene ${scene.scene_number}: \"${scene.narration.substring(0,40)}\" → ${duration}s (${kb}KB)`);\n  \n  totalAudioSec += duration;\n  \n  scenesWithAudio.push({\n    ...scene,\n    audio_path:    audioOk ? audioPath : null,\n    audio_ok:      audioOk,\n    duration_sec:  duration,  // DURASI SEBENARNYA dari audio TTS\n    audio_error:   audioOk ? null : 'TTS gagal'\n  });\n}\n\nconst audioOkCount = scenesWithAudio.filter(s => s.audio_ok).length;\nconsole.log(`[TTS] Selesai: ${audioOkCount}/${data.scenes.length} audio OK`);\nconsole.log(`[TTS] Total durasi: ${totalAudioSec}s (${Math.round(totalAudioSec/60)}m)`);\n\nreturn { json: {\n  ...data,\n  scenes:           scenesWithAudio,\n  audio_dir:        AUDIO_DIR,\n  total_audio_sec:  totalAudioSec,\n  audio_ok_count:   audioOkCount,\n  tts_voice:        VOICE\n}};"
+      },
+      "id": "node-http-voice",
+      "name": "Edge TTS - Audio Per Scene",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        300
+      ],
+      "notes": "TTS per scene! Durasi video = durasi audio scene → SINKRON SEMPURNA."
+    },
+    {
+      "parameters": {
+        "jsCode": "const { execSync } = require('child_process');\nconst fs   = require('fs');\nconst path = require('path');\nconst data = $input.first().json;\n\nconst FFMPEG    = 'C:/Users/User/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.1-full_build/bin/ffmpeg.exe';\nconst FONT_BOLD = 'C\\\\:/Windows/Fonts/arialbd.ttf';\nconst FONT_NRM  = 'C\\\\:/Windows/Fonts/arial.ttf';\n\nconst BUNDLE  = data.bundle_dir;\nconst outPath = `${BUNDLE}/${data.video_filename}`;\nfs.mkdirSync(BUNDLE, { recursive: true });\n\nconst scenes = data.scenes || [];\n\n// ──────────────────────────────────────────────────────────\n// STRATEGI SINKRONISASI:\n// Setiap scene punya: 1 gambar + 1 audio → durasi = durasi audio\n// FFmpeg: tiap scene dirender sendiri-sendiri lalu concat\n// ──────────────────────────────────────────────────────────\n\nfunction escTxt(t) {\n  return (t || '')\n    .replace(/\\\\/g,'\\\\\\\\')\n    .replace(/'/g,\"\\\\'\")\n    .replace(/:/g,'\\\\:')\n    .replace(/[\\[\\]]/g,'')\n    .replace(/,/g,' ')\n    .replace(/\"/g,'\\\\\"')\n    .replace(/\\n/g,' ')\n    .trim()\n    .substring(0,55);\n}\n\n// Word wrap menjadi max 3 baris agar terbaca di layar HP\nfunction wrapTxt(t, maxChar) {\n  const words = t.split(' ');\n  let line1 = '', line2 = '', line3 = '';\n  for (const w of words) {\n    if (!line1 || (line1 + ' ' + w).length <= maxChar) {\n      line1 = (line1 ? line1 + ' ' : '') + w;\n    } else if (!line2 || (line2 + ' ' + w).length <= maxChar) {\n      line2 = (line2 ? line2 + ' ' : '') + w;\n    } else if (!line3 || (line3 + ' ' + w).length <= maxChar) {\n      line3 = (line3 ? line3 + ' ' : '') + w;\n    }\n    // sisa kata tidak ditampilkan (batasan layar)\n  }\n  // Pastikan setiap baris tidak terpotong di tengah kata\n  return {\n    line1: line1.trim().substring(0, maxChar),\n    line2: line2.trim().substring(0, maxChar),\n    line3: line3.trim().substring(0, maxChar)\n  };\n}\n\n// ──────────────────────────────────────────────────────────\n// Render setiap scene menjadi video clip sementara\n// ──────────────────────────────────────────────────────────\nconst CLIP_DIR   = `${BUNDLE}/_tmp_clips`;\nconst clipPaths  = [];\nfs.mkdirSync(CLIP_DIR, { recursive: true });\n\nlet totalRenderedSec = 0;\nconst renderErrors   = [];\n\nfor (let i = 0; i < scenes.length; i++) {\n  const s       = scenes[i];\n  const clipOut = path.join(CLIP_DIR, `clip${String(i+1).padStart(2,'0')}.mp4`).replace(/\\\\/g,'/');\n  const imgSrc  = s.image_local ? s.image_path : (s.image_url || s.image_path);\n  const audSrc  = s.audio_ok && s.audio_path && fs.existsSync(s.audio_path) ? s.audio_path : null;\n  const durSec  = s.duration_sec || 10;\n  \n  // TEXT OVERLAY dari narasi yang diucapkan (SINKRON dengan audio)\n  const narTxt      = escTxt(s.narration);\n  const { line1, line2, line3 } = wrapTxt(narTxt, 28);\n  const isHook      = i === 0;\n  \n  // Scene 1 (hook): judul besar di ATAS + narasi\n  // Scene lain    : narasi di BAWAH 3 baris\n  const hookTxt     = escTxt(data.hook || s.on_screen_text);\n  \n  // Layout teks\n  const yBg   = isHook ? 40   : 780;\n  const hBg   = isHook ? 200  : 240;\n  const yL1   = isHook ? 58   : 794;\n  const yL2   = isHook ? 130  : 858;\n  const yL3   = isHook ? 182  : 918;\n  const sz1   = isHook ? 42   : 32;\n  const sz2   = isHook ? 32   : 29;\n  const sz3   = isHook ? 26   : 27;\n  const txt1  = isHook ? hookTxt : line1;\n  const txt2  = isHook ? line1   : line2;\n  const txt3  = isHook ? line2   : line3;\n  \n  // Nomor scene: pojok kanan atas\n  const badgeTxt = `${i+1}/${scenes.length}`;\n  \n  // Filter drawtext per clip\n  const filterBase = [\n    `scale=576:1024:force_original_aspect_ratio=increase,crop=576:1024,setsar=1`,\n    `drawbox=x=0:y=${yBg}:w=576:h=${hBg}:color=black@0.65:t=fill`,\n    `drawtext=text='${txt1}':fontsize=${sz1}:fontcolor=white:borderw=3:bordercolor=black@0.8:x=(w-text_w)/2:y=${yL1}:fontfile='${FONT_BOLD}'`,\n  ];\n  \n  // Tambah baris 2 jika ada isi\n  if (txt2 && txt2.trim().length > 1) {\n    filterBase.push(`drawtext=text='${txt2}':fontsize=${sz2}:fontcolor=#FFFACD:borderw=2:bordercolor=black@0.7:x=(w-text_w)/2:y=${yL2}:fontfile='${FONT_BOLD}'`);\n  }\n  \n  // Tambah baris 3 jika ada isi (min 2 kata agar tidak tampil potongan kata)\n  if (txt3 && txt3.trim().split(' ').length >= 2 && txt3.trim().length > 3) {\n    filterBase.push(`drawtext=text='${txt3}':fontsize=${sz3}:fontcolor=#FFF8DC:borderw=2:bordercolor=black@0.7:x=(w-text_w)/2:y=${yL3}:fontfile='${FONT_NRM}'`);\n  }\n  \n  // Badge nomor scene (pojok kanan atas)\n  filterBase.push(`drawbox=x=w-68:y=8:w=60:h=34:color=black@0.6:t=fill`);\n  filterBase.push(`drawtext=text='${badgeTxt}':fontsize=20:fontcolor=white:borderw=1:bordercolor=black:x=w-56:y=14:fontfile='${FONT_NRM}'`);\n  \n  const filterStr = filterBase.join(',');\n  \n  // Input: gambar + optional audio\n  const inputImg  = `-loop 1 -t ${durSec} -i \"${imgSrc}\"`;\n  const inputAud  = audSrc ? `-i \"${audSrc}\"` : '';\n  const mapAud    = audSrc ? `-map 0:v -map 1:a -c:a aac -b:a 128k` : `-map 0:v -an`;\n  const clipCmd   = `\"${FFMPEG}\" -y ${inputImg} ${inputAud} -vf \"${filterStr}\" ${mapAud} -c:v libx264 -preset fast -crf 26 -pix_fmt yuv420p -r 24 -shortest -movflags +faststart \"${clipOut}\"`;\n  \n  try {\n    execSync(clipCmd, { stdio:'pipe', timeout:120000 });\n    const clipOk = fs.existsSync(clipOut) && fs.statSync(clipOut).size > 1000;\n    if (clipOk) {\n      clipPaths.push(clipOut);\n      totalRenderedSec += durSec;\n      console.log(`[FFMPEG] Clip ${i+1}/${scenes.length}: ${durSec}s → OK (${Math.round(fs.statSync(clipOut).size/1024)}KB)`);\n    } else {\n      renderErrors.push(`Clip ${i+1}: file kosong`);\n      console.warn(`[FFMPEG] Clip ${i+1}: file kosong`);\n    }\n  } catch(e) {\n    const errMsg = e.message.substring(0,200);\n    renderErrors.push(`Clip ${i+1}: ${errMsg}`);\n    console.error(`[FFMPEG] Clip ${i+1} error:`, errMsg);\n    // Simpan error untuk debugging\n    try { fs.writeFileSync(`${BUNDLE}/render_error_scene${i+1}.txt`, e.message); } catch(ex) {}\n  }\n}\n\nconsole.log(`[FFMPEG] ${clipPaths.length}/${scenes.length} clips berhasil, total ~${totalRenderedSec}s`);\n\n// ──────────────────────────────────────────────────────────\n// Concat semua clip menjadi 1 video final\n// ──────────────────────────────────────────────────────────\nlet renderOk  = false;\nlet sizeMb    = 0;\nlet renderErr = null;\n\nif (clipPaths.length === 0) {\n  renderErr = 'Semua clip gagal dirender';\n  console.error('[FFMPEG]', renderErr);\n} else {\n  // Tulis file list untuk concat\n  const concatFile = path.join(CLIP_DIR, 'concat_list.txt').replace(/\\\\/g,'/');\n  const listContent = clipPaths.map(p => `file '${p}'`).join('\\n');\n  fs.writeFileSync(concatFile, listContent, 'utf8');\n  \n  // Concat dengan re-encoding untuk stabilitas\n  const concatCmd = `\"${FFMPEG}\" -y -f concat -safe 0 -i \"${concatFile}\" -c:v libx264 -preset fast -crf 24 -pix_fmt yuv420p -r 24 -c:a aac -b:a 128k -movflags +faststart \"${outPath}\"`;\n  \n  try {\n    execSync(concatCmd, { stdio:'pipe', timeout:300000 });\n    renderOk = fs.existsSync(outPath) && fs.statSync(outPath).size > 50000;\n    sizeMb   = renderOk ? Math.round(fs.statSync(outPath).size / 1048576 * 100) / 100 : 0;\n    console.log(`[FFMPEG] Final: ${renderOk ? 'SUKSES' : 'GAGAL'} - ${outPath} (${sizeMb} MB)`);\n  } catch(e) {\n    renderErr = e.message.substring(0,400);\n    console.error('[FFMPEG] Concat error:', renderErr.substring(0,150));\n    try { fs.writeFileSync(`${BUNDLE}/render_error_concat.txt`, renderErr); } catch(ex) {}\n  }\n}\n\nreturn { json: {\n  ...data,\n  render_ok:       renderOk,\n  render_error:    renderErr || (renderErrors.length ? renderErrors.join('|') : null),\n  video_path:      outPath,\n  video_size_mb:   sizeMb,\n  clips_ok:        clipPaths.length,\n  clips_total:     scenes.length,\n  clips_dir:       CLIP_DIR,\n  total_video_sec: totalRenderedSec,\n  bundle_dir:      BUNDLE\n}};"
+      },
+      "id": "node-exec-ffmpeg",
+      "name": "Execute Command - FFmpeg Render",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1880,
+        300
+      ],
+      "notes": "Render per scene clip → concat jadi 1 video. Durasi = durasi audio per scene = SINKRON."
+    },
+    {
+      "parameters": {
+        "jsCode": "const pipeData = $('Function - Process & Download Images').first().json;\nconst ttsData  = $('Edge TTS - Audio Per Scene').first().json;\nconst execOut  = $input.first().json;\nconst fs   = require('fs');\nconst path = require('path');\n\nconst BUNDLE      = execOut.bundle_dir || pipeData.bundle_dir;\nconst scenes      = ttsData.scenes  || pipeData.scenes || [];\nconst renderOk    = execOut.render_ok    || false;\nconst videoPath   = execOut.video_path   || '';\nconst sizeMb      = execOut.video_size_mb || 0;\nconst totalSec    = execOut.total_video_sec || 0;\n\nconst now   = new Date();\nconst dd    = String(now.getDate()).padStart(2,'0');\nconst mm    = String(now.getMonth()+1).padStart(2,'0');\nconst yyyy  = now.getFullYear();\nconst dateStr = `${dd}/${mm}/${yyyy}`;\n\nconst topic  = pipeData.topic  || 'Fakta Seru Edukasi Anak';\nconst hook   = pipeData.hook   || topic;\nconst genre  = pipeData.genre  || 'animals';\nconst rawTags = pipeData.hashtags || ['#shorts','#fyp'];\n\n// ── SOCIAL MEDIA TXT ────────────────────────────────────────\n// File ini yang akan disimpan bersama video (file mentah dihapus)\nconst socialPath = path.join(BUNDLE, 'social_media.txt');\n\nconst baseExtra = [\n  '#anakpintar','#edukasi','#faktaseru','#belajarsambilbermain',\n  '#videoedukasi','#kidslearning','#shorts','#fyp','#indonesia'\n];\nconst allTags = [...new Set([...rawTags, ...baseExtra])];\n\nconst ytTags = allTags.slice(0, 15).map(h => h.replace('#','')).join(', ');\nconst igTags = [...allTags, '#fypシ','#reels','#explorepage','#viral','#trending',\n                '#anakanak','#belajar'].slice(0, 30).join(' ');\nconst ttTags = [...rawTags, '#fyp','#fypシ','#viral','#anakpintar','#belajarditiktok'].slice(0,10).join(' ');\n\nconst ytTitle1 = hook.substring(0, 97);\nconst ytTitle2 = `Fakta Seru ${genre.charAt(0).toUpperCase()+genre.slice(1)}: ${hook.substring(0,65)}`;\nconst ytTitle3 = `${hook.substring(0,55)} | Video Edukasi Anak`;\n\n// Deskripsi YouTube dari narasi scene-scene\nconst narasi3  = scenes.slice(0,3).map(s => s.narration).join(' ');\nconst narFull  = scenes.map(s => s.narration).join(' ');\n\n// Hitung total durasi dalam format m:ss\nconst totalMin = Math.floor(totalSec / 60);\nconst totalSs  = String(totalSec % 60).padStart(2,'0');\nconst durasiStr = `${totalMin}:${totalSs}`;\n\nconst lines = [\n  '═══════════════════════════════════════════════════',\n  `  📱 SOCIAL MEDIA KIT — ${dateStr}`,\n  `  📁 Folder: ${path.basename(BUNDLE)}`,\n  `  🎬 Durasi: ${durasiStr} (${totalSec}s) | ${scenes.length} scene`,\n  `  ✅ Status: ${renderOk ? 'RENDER SUKSES (' + sizeMb + ' MB)' : 'PERLU MANUAL RENDER'}`,\n  '═══════════════════════════════════════════════════',\n  '',\n  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',\n  '  🎬 YOUTUBE / YOUTUBE SHORTS',\n  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',\n  '',\n  '[ JUDUL — pilih yang paling menarik ]',\n  `A) ${ytTitle1}`,\n  `B) ${ytTitle2}`,\n  `C) ${ytTitle3}`,\n  '',\n  '[ DESKRIPSI ]',\n  `${hook}`,\n  '',\n  narFull,\n  '',\n  '---',\n  `Topik: ${topic}`,\n  `Genre: ${genre} | Tanggal: ${dateStr}`,\n  `Durasi: ${durasiStr}`,\n  '',\n  rawTags.join(' '),\n  '',\n  'Subscribe untuk video edukasi anak setiap hari! 🎓',\n  'Like jika video ini bermanfaat untuk si kecil! ❤️',\n  '',\n  '[ TAGS YouTube Studio ]',\n  ytTags,\n  '',\n  '[ THUMBNAIL — saran teks overlay ]',\n  hook.substring(0, 40).toUpperCase(),\n  '',\n  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',\n  '  📸 INSTAGRAM REELS',\n  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',\n  '',\n  '[ CAPTION ]',\n  `${hook} 🎉`,\n  '',\n  narasi3,\n  '',\n  '👇 Simpan video ini untuk ditonton bersama si kecil!',\n  '',\n  igTags,\n  '',\n  '[ HASHTAGS komentar pertama ]',\n  igTags,\n  '',\n  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',\n  '  🎵 TIKTOK',\n  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',\n  '',\n  '[ CAPTION ]',\n  `${hook} 🚀`,\n  '',\n  narasi3,\n  '',\n  ttTags,\n  '',\n  '[ HASHTAGS ]',\n  ttTags,\n  '',\n  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',\n  '  🔍 SEO / META',\n  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',\n  '',\n  '[ META DESCRIPTION — 160 karakter ]',\n  (hook + ' ' + narasi3).substring(0, 155).trim() + '...',\n  '',\n  '[ SEO KEYWORDS ]',\n  `${topic}, fakta seru anak, edukasi anak, video anak, ${genre}, belajar sambil bermain, animasi clay`,\n  '',\n  '[ WAKTU POSTING TERBAIK WIB ]',\n  '  YouTube  : 08:00-10:00 (weekday) | 09:00-11:00 (weekend)',\n  '  Instagram : 07:00-09:00 | 18:00-20:00',\n  '  TikTok    : 06:00-08:00 | 19:00-22:00',\n  '',\n  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',\n  '  🎬 SCENE BREAKDOWN (untuk caption)',\n  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',\n  '',\n  ...scenes.map((s,i) => {\n    const ss = String(i+1).padStart(2,' ');\n    return `Scene ${ss} [${s.duration_sec}s]: ${s.narration.substring(0, 75)}`;\n  }),\n  '',\n  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',\n  `Generated : ${new Date().toISOString()}`,\n  `Pipeline  : ${pipeData.pipeline_id}`,\n  `Video     : ${videoPath || 'N/A'}`,\n  `Ukuran    : ${sizeMb} MB`,\n  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',\n];\n\ntry {\n  fs.writeFileSync(socialPath, lines.join('\\n'), 'utf8');\n  console.log('[SOCIAL] OK:', socialPath);\n} catch(e) {\n  console.warn('[SOCIAL] Error:', e.message);\n}\n\n// ── CLEANUP FILE MENTAH ──────────────────────────────────────\n// Hapus _tmp_images, _tmp_audio, _tmp_clips setelah render OK\n// Jika render gagal, JANGAN hapus agar bisa debugging\nif (renderOk) {\n  const dirsToDelete = [\n    execOut.clips_dir  || path.join(BUNDLE, '_tmp_clips'),\n    pipeData.images_dir || path.join(BUNDLE, '_tmp_images'),\n    ttsData.audio_dir  || path.join(BUNDLE, '_tmp_audio')\n  ];\n  \n  for (const dir of dirsToDelete) {\n    try {\n      if (fs.existsSync(dir)) {\n        fs.rmSync(dir, { recursive: true, force: true });\n        console.log('[CLEANUP] Dihapus:', dir);\n      }\n    } catch(e) {\n      console.warn('[CLEANUP] Gagal hapus:', dir, '-', e.message);\n    }\n  }\n  console.log('[CLEANUP] File mentah dihapus. Output bersih: video + social_media.txt saja.');\n} else {\n  console.warn('[CLEANUP] Render belum sukses, file mentah dipertahankan untuk debugging.');\n}\n\n// ── LOG AKHIR ────────────────────────────────────────────────\nconsole.log('');\nconsole.log('╔════════════════════════════════════╗');\nconsole.log(`║  OUTPUT SIAP: ${path.basename(BUNDLE)}`);\nconsole.log(`║  Video: ${renderOk ? sizeMb + ' MB ✅' : 'perlu manual render ⚠️'}`);\nconsole.log(`║  Durasi: ~${durasiStr} (${scenes.length} scene sinkron)`);\nconsole.log('╚════════════════════════════════════╝');\n\nreturn { json: {\n  ...pipeData,\n  render_ok:         renderOk,\n  render_error:      execOut.render_error,\n  bundle_dir:        BUNDLE,\n  video_path:        videoPath,\n  video_size_mb:     sizeMb,\n  total_video_sec:   totalSec,\n  total_scenes:      scenes.length,\n  social_media_path: socialPath,\n  cleanup_done:      renderOk,\n  tg_status:         renderOk ? `✅ RENDER SUKSES (${sizeMb} MB, ${durasiStr})` : '⚠️ Perlu manual render',\n  tg_topic:          topic,\n  tg_folder:         path.basename(BUNDLE)\n}};"
+      },
+      "id": "node-fn-save",
+      "name": "Function - Bundle Output & Cleanup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2120,
+        300
+      ],
+      "notes": "Buat social_media.txt lengkap. Hapus file mentah jika render OK. Output bersih: video + txt."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{$env.TELEGRAM_BOT_TOKEN}}/sendMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{$env.TELEGRAM_CHAT_ID}}\",\n  \"parse_mode\": \"HTML\",\n  \"text\": \"<b>{{ $json.tg_status }}</b>\\n\\n<b>📁 Folder:</b> {{ $json.tg_folder }}\\n<b>🎬 Topik:</b> {{ $json.tg_topic }}\\n<b>⏱ Durasi:</b> {{ Math.round($json.total_video_sec/60*10)/10 }} menit ({{ $json.total_scenes }} scene)\\n<b>📦 Ukuran:</b> {{ $json.video_size_mb }} MB\\n\\n<b>📱 Tags:</b> {{ $json.hashtags ? $json.hashtags.slice(0,5).join(' ') : '#shorts #fyp' }}\\n\\n<b>📂 Path:</b> <code>{{ $json.bundle_dir }}</code>\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "node-telegram",
+      "name": "Kirim ke Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2360,
+        300
+      ],
+      "notes": "Notifikasi Telegram. Set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID di env vars."
+    }
+  ],
+  "connections": {
+    "Cron - Harian 08:00": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Generate Script Anak",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Generate Script Anak": {
+      "main": [
+        [
+          {
+            "node": "Function - Split Scene",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Function - Split Scene": {
+      "main": [
+        [
+          {
+            "node": "Function - Generate Prompt Clay",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Function - Generate Prompt Clay": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Leonardo AI Images",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Leonardo AI Images": {
+      "main": [
+        [
+          {
+            "node": "Function - Process & Download Images",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Function - Process & Download Images": {
+      "main": [
+        [
+          {
+            "node": "Edge TTS - Audio Per Scene",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edge TTS - Audio Per Scene": {
+      "main": [
+        [
+          {
+            "node": "Execute Command - FFmpeg Render",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Command - FFmpeg Render": {
+      "main": [
+        [
+          {
+            "node": "Function - Bundle Output & Cleanup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Function - Bundle Output & Cleanup": {
+      "main": [
+        [
+          {
+            "node": "Kirim ke Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "executionTimeout": 3600
+  },
+  "tags": [
+    "video",
+    "ai",
+    "kids",
+    "clay",
+    "shorts",
+    "tiktok",
+    "youtube",
+    "edukasi",
+    "sync"
+  ]
+}
