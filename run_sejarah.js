@@ -46,8 +46,8 @@ const HARI_ARG   = (() => { const i = process.argv.indexOf('--hari'); return i >
 const USE_LONG   = process.argv.includes('--long'); // 15 scene, 3-5 menit, DYK segments
 
 // ── VIDEO SETTINGS ─────────────────────────────────────────────
-const VIDEO_W = 576;
-const VIDEO_H = 1024;
+const VIDEO_W = 720;   // 9:16 portrait — upgrade dari 576
+const VIDEO_H = 1280;  // 9:16 portrait — upgrade dari 1024
 
 // ── WARNA TEMA per ERA ─────────────────────────────────────────
 const ERA_STYLE = {
@@ -175,6 +175,7 @@ function httpsGet(hostname, path, headers) {
 
 // ────────────────────────────────────────────────────────────────
 //  GROQ AI — Generate Script Sejarah
+//  Upgrade: hook 3 variasi, storytelling dramatis, cinematic prompts
 // ────────────────────────────────────────────────────────────────
 async function generateScriptSejarah(jadwalItem, longFormat = false) {
   if (!GROQ_KEY) { warn('Groq key tidak ada'); return null; }
@@ -186,51 +187,69 @@ async function generateScriptSejarah(jadwalItem, longFormat = false) {
 
   info(`Groq AI: generate script "${jadwalItem.judul}" (${numScenes} scene, ${wordMin}-${wordMax} kata/scene)...`);
 
-  const systemPrompt = `Kamu adalah pendongeng sejarah Indonesia yang jenius untuk anak-anak.
-Kamu membuat konten video edukasi sejarah yang seru, mengejutkan, dan mudah dipahami anak usia 7-14 tahun.
-Gaya: Seperti teman bermain yang bercerita, bukan guru yang membosankan.
-Bahasa: Indonesia yang hidup, penuh semangat, sesekali kata seru seperti "Wow!", "Luar biasa!", "Tahukah kamu?".
-Selalu hubungkan fakta sejarah dengan kehidupan anak-anak sehari-hari agar mudah dipahami.
+  const systemPrompt = `Kamu adalah penulis konten video viral tier-1 yang juga ahli sejarah Indonesia.
+Kamu menguasai teknik storytelling YouTube Shorts dan TikTok yang membuat penonton TIDAK BISA berhenti menonton.
 
-PENTING — image_prompt HARUS SANGAT DETAIL dan COCOK dengan narasi. Ikuti aturan ini ketat:
+GAYA STORYTELLING:
+- Dramatis, misterius, dan penuh ketegangan seperti trailer film
+- Bahasa Indonesia yang kuat, padat, dan mengejutkan
+- Gunakan kalimat pendek dan kuat: "Mereka tidak pernah menyangka...", "Rahasianya tersimpan selama berabad-abad...", "Tidak ada yang tahu bahwa..."
+- Sesekali gunakan "Kamu tidak akan percaya..." atau "Ini bukan cerita biasa..."
+- Bangun rasa PENASARAN dan KETEGANGAN di setiap scene
+- Scene terakhir HARUS memberikan emotional punch / twist mengejutkan
 
-ATURAN image_prompt (WAJIB SEMUA TERPENUHI):
-1. SELALU ada TOKOH MANUSIA yang aktif melakukan sesuatu — BUKAN gambar peta, benda mati, atau pemandangan kosong
-2. Tokoh harus cute chibi style, ekspresi wajah jelas (senang, kagum, semangat, penasaran)
-3. Sebutkan ciri fisik SPESIFIK: warna rambut, warna pakaian, aksesori (mahkota/senjata/alat)
-4. Setting HARUS COCOK dengan narasi: kalau narasi bicara tentang laut → tokoh di kapal; tentang agama → di kuil; tentang perdagangan → di pasar/pelabuhan dengan pedagang dari berbagai negara
-5. Suasana/pencahayaan yang CERIA: golden sunrise, sunny day, warm torch light — HINDARI dark/gloomy/suram
-6. Untuk scene perang/kejatuhan: tetap CERAH dan BERWARNA, tokoh tetap terlihat BERANI (bukan sedih/hancur)
-7. SELALU akhiri dengan: clay animation style, 3D claymation render, soft plasticine texture, smooth shiny surface, bright cheerful colors, cute chibi characters, miniature world feel, highly detailed, 8K, no text, no watermark
+STRUKTUR WAJIB:
+- Scene 1 (HOOK): Fakta mengejutkan / pertanyaan misterius yang langsung menarik — MAX 10 kata yang sangat kuat
+- Scene 2-3 (BUILD): Bangun latar, masuk ke inti cerita dengan tempo cepat
+- Scene 4-7 (CLIMAX): Drama puncak, fakta-fakta mencengangkan, konflik
+- Scene 8-9 (TWIST): Hal mengejutkan yang jarang diketahui
+- Scene 10 (ENDING): Emotional close / call to action yang kuat
 
-CONTOH BAGUS: "Cute chibi Sriwijaya navigator boy with short black hair, navy blue tunic, holding a wooden compass, standing on a large wooden ship deck, Sumatra coastline with lush rainforest in background, crystal clear blue sea, other crew members rowing, morning sunlight, clay animation style, 3D claymation render, soft plasticine texture, smooth shiny surface, bright cheerful colors, cute chibi characters, miniature world feel, highly detailed, 8K, no text, no watermark"
-CONTOH BURUK: "Peta Asia Tenggara kuno, kerajaan-kerajaan kecil, clay style" ← TIDAK ADA TOKOH, TIDAK MENARIK!`;
+IMAGE PROMPT — WAJIB CINEMATIC & DETAIL:
+Setiap image_prompt HARUS mengandung semua elemen ini:
+1. TOKOH dengan ekspresi dramatis (warna kostum spesifik, aksesori detail)
+2. SETTING yang imersif (arsitektur era, cuaca, waktu hari)
+3. PENCAHAYAAN CINEMATIC: "dramatic rim lighting", "volumetric golden light", "deep shadow contrast", "torch-lit atmosphere", "misty dawn light"
+4. DEPTH: "shallow depth of field", "foreground elements blurred", "layers of depth"
+5. MOOD: "epic cinematic atmosphere", "mysterious fog", "dramatic tension"
+6. Gaya visual: clay animation style, 3D claymation render, soft plasticine texture, smooth shiny surface, bright cheerful colors, cute chibi characters, miniature world feel, highly detailed, 8K, no text, no watermark
 
-  // ── Long format rules (15 scene, DYK segments) ──
+CONTOH HOOK KUAT:
+- "Kerajaan ini menghilang dalam semalam — dan tidak ada yang tahu kenapa."
+- "Satu sumpah mengubah nasib seluruh Nusantara selamanya."
+- "Ia hanya seorang pemuda — tapi menaklukkan setengah dunia."
+
+VARIASI HOOK: Kamu akan menghasilkan 3 variasi hook untuk setiap script.
+Sistem akan memilih yang terbaik secara otomatis.`;
+
   const longRules = longFormat ? `
+STRUKTUR 15 SCENE (FORMAT PANJANG):
+  Scene  1       : HOOK misterius — 1 kalimat, max 10 kata, sangat mengejutkan
+  Scene  2- 3    : Latar dunia — bangun atmosfer era tersebut
+  Scene  4- 5    : Fakta tersembunyi yang jarang diketahui
+  Scene  6- 8    : Drama puncak — momen paling mencengangkan
+  Scene  9       : 🔍 DID YOU KNOW #1 — "Tahukah kamu..." + fakta spesifik
+  Scene 10-11    : Dampak besar — perubahan yang diakibatkan
+  Scene 12       : 🔍 DID YOU KNOW #2 — "Fakta tersembunyi..." + twist
+  Scene 13       : Warisan hingga hari ini
+  Scene 14       : 🔍 DID YOU KNOW #3 — "Satu lagi fakta..." + hubungan ke masa kini
+  Scene 15       : EMOTIONAL ENDING — kalimat yang meninggalkan kesan mendalam` : '';
 
-STRUKTUR 15 SCENE (FORMAT PANJANG 3-5 MENIT):
-  Scene  1       : HOOK — pertanyaan/fakta mengejutkan yang bikin penonton penasaran
-  Scene  2- 3    : LATAR — sejarah singkat & konteks zaman
-  Scene  4- 5    : FAKTA UNIK — hal-hal yang jarang diketahui tentang topik ini
-  Scene  6- 8    : KISAH UTAMA — peristiwa paling dramatis & seru, cerita mendalam
-  Scene  9       : 🔍 DID YOU KNOW #1 — awali narasi dengan "Tahukah kamu..." lalu ungkap fakta mengejutkan yang sangat spesifik dan jarang diketahui orang
-  Scene 10-11    : DAMPAK & PENGARUH — dampak terhadap Indonesia & dunia hingga kini
-  Scene 12       : 🔍 DID YOU KNOW #2 — awali dengan "Fakta tersembunyi yang bikin kamu terkejut..." lalu fakta unik yang berhubungan langsung dengan kehidupan anak sehari-hari
-  Scene 13       : WARISAN — warisan budaya/sejarah yang masih kita rasakan hari ini
-  Scene 14       : 🔍 DID YOU KNOW #3 — awali dengan "Satu lagi fakta mencengangkan..." lalu fakta yang menghubungkan sejarah ini dengan teknologi/budaya/makanan/bahasa modern
-  Scene 15       : PENUTUP — ajakan inspiratif untuk anak-anak dengan pertanyaan refleksi` : '';
-
-  const userPrompt = `Buat script video sejarah SERU berjudul: "${jadwalItem.judul}"
+  const userPrompt = `Buat script video sejarah VIRAL berjudul: "${jadwalItem.judul}"
 
 Topik detail: ${jadwalItem.topik_groq}
 Era: ${jadwalItem.era}
 ${longRules}
 
-Format JSON berikut (WAJIB):
+Format JSON (WAJIB PERSIS):
 {
   "topic": "${jadwalItem.judul}",
-  "hook": "pertanyaan atau fakta mengejutkan max 15 kata untuk hook pembuka",
+  "hook": "hook terpilih — max 10 kata, sangat kuat",
+  "hook_variants": [
+    "variasi hook 1 — dramatis",
+    "variasi hook 2 — misterius",
+    "variasi hook 3 — mengejutkan"
+  ],
   "genre": "history",
   "era": "${jadwalItem.era}",
   "hashtags": ["#sejarahindonesia","#kerajaannusantara","#edukasianakid","#faktasejarah","#belajarsejarah","#anakpintarid"],
@@ -238,23 +257,23 @@ Format JSON berikut (WAJIB):
     {
       "n": 1,
       "dur": ${durBase},
-      "emo": "excited",
-      "narration": "WAJIB ${wordMin}-${wordMax} kata. Kalimat hook yang langsung menarik perhatian anak dengan fakta mengejutkan tentang topik ini. Awali dengan pertanyaan atau fakta yang membuat anak-anak terkejut dan penasaran.",
+      "emo": "shocked",
+      "narration": "WAJIB ${wordMin}-${wordMax} kata. Kalimat HOOK yang langsung menghantam — dramatis, misterius, mengejutkan. Buat penonton tidak bisa berhenti.",
       "label": "JUDUL SCENE CAPS MAX 26 KARAKTER",
-      "image_prompt": "WAJIB DETAIL — nama tokoh spesifik + ciri fisik + warna kostum + lokasi arsitektur detail + suasana pencahayaan + clay animation style, 3D claymation render, soft plasticine texture, smooth shiny surface, bright cheerful colors, cute chibi characters, miniature world feel, highly detailed, 8K, no text, no watermark",
-      "visual": "deskripsi singkat gambar max 12 kata untuk referensi internal"
+      "image_prompt": "BAHASA INGGRIS WAJIB — nama tokoh + ekspresi dramatis + warna kostum spesifik + setting detail + dramatic rim lighting OR volumetric golden light + shallow depth of field + epic cinematic atmosphere + clay animation style, 3D claymation render, soft plasticine texture, smooth shiny surface, bright cheerful colors, cute chibi characters, miniature world feel, highly detailed, 8K, no text, no watermark",
+      "visual": "deskripsi singkat max 12 kata",
+      "mood": "epic|mysterious|emotional|triumphant|dark|wonder"
     }
   ]
 }
 
-RULES PENTING:
-1. TEPAT ${numScenes} scene (tidak boleh lebih, tidak boleh kurang)
-2. narration WAJIB ${wordMin}-${wordMax} kata setiap scene (hitung! jangan kurang)
-3. Setiap narration harus bisa berdiri sendiri, penuh informasi, tidak menggantung
-4. Scene "DID YOU KNOW" (scene 9, 12, 14 jika 15 scene): narasi HARUS dimulai dengan "Tahukah kamu...", "Fakta tersembunyi...", atau "Satu lagi fakta..." — ungkap fakta spesifik yang jarang diketahui
-5. image_prompt: BAHASA INGGRIS, SANGAT DETAIL, sebutkan nama tokoh + warna + setting + clay style tags
-6. image_prompt setiap scene HARUS BERBEDA (jangan copy paste, beda pose/lokasi/aktivitas)
-7. JSON SAJA, TANPA markdown`;
+RULES KETAT:
+1. TEPAT ${numScenes} scene
+2. narration WAJIB ${wordMin}-${wordMax} kata per scene (HITUNG!)
+3. hook_variants: 3 variasi berbeda karakter (dramatis / misterius / mengejutkan)
+4. image_prompt: SETIAP scene HARUS BERBEDA pose/lokasi/aktivitas + selalu ada lighting cinematic
+5. Scene terakhir: berikan emotional punch / twist yang tidak terduga
+6. JSON SAJA, TANPA markdown, TANPA komentar`;
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
@@ -268,7 +287,7 @@ RULES PENTING:
             { role: 'user', content: userPrompt }
           ],
           max_tokens: longFormat ? 5500 : 4000,
-          temperature: 0.85
+          temperature: 0.88
         })
       );
 
@@ -280,6 +299,14 @@ RULES PENTING:
       const script  = JSON.parse(cleaned);
 
       if (!script.scenes || script.scenes.length < 5) { warn('Script kurang lengkap'); return null; }
+
+      // Pilih hook terbaik dari 3 variasi (terpanjang = paling detail)
+      if (script.hook_variants?.length >= 3) {
+        const best = script.hook_variants.reduce((a, b) => b.length > a.length ? b : a);
+        script.hook = script.hook || best;
+        info(`Hook terpilih: "${script.hook}"`);
+        info(`Variasi: ${script.hook_variants.map((h,i) => `[${i+1}] ${h}`).join(' | ')}`);
+      }
 
       ok(`Script: "${script.topic}" (${script.scenes.length} scene)`);
       return script;
@@ -293,21 +320,31 @@ RULES PENTING:
 }
 
 // ────────────────────────────────────────────────────────────────
-//  EDGE TTS — Narasi Audio
+//  EDGE TTS — Microsoft Neural (natural, cocok narasi sejarah)
+//  Voice: id-ID-ArdiNeural  (pria dramatis)
+//  Fallback: Google TTS
 // ────────────────────────────────────────────────────────────────
-// ────────────────────────────────────────────────────────────────
-//  EDGE TTS — Microsoft Neural (jauh lebih natural dari Google TTS)
-//  Voice: id-ID-ArdiNeural  (pria, natural, cocok narasi sejarah)
-//  Fallback: id-ID-GadisNeural (wanita, energik)
-//  Fallback 2: Google TTS (jika Edge tidak tersedia)
-// ────────────────────────────────────────────────────────────────
+
+// Preprocessing teks untuk pacing narasi lebih natural & dramatis
+function prepareNarrationText(text) {
+  return text
+    .replace(/\.\s+/g, '... ')              // jeda panjang setelah titik
+    .replace(/!\s+/g, '! ')                  // sedikit jeda setelah seru
+    .replace(/\?\s+/g, '?... ')             // suspense setelah tanda tanya
+    .replace(/,\s+/g, ', ')                  // jeda natural koma
+    .replace(/—/g, '... ')                   // em-dash jadi jeda dramatis
+    .replace(/:/g, '... ')                   // titik dua jadi jeda
+    .trim();
+}
+
 async function generateTTSEdge(text, destPath) {
-  const destWin = destPath.replace(/\//g, '\\');
+  const destWin  = destPath.replace(/\//g, '\\');
+  const prepared = prepareNarrationText(text);   // pacing dramatis
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const tts = new MsEdgeTTS();
       await tts.setMetadata('id-ID-ArdiNeural', OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-      const { audioStream } = await tts.toStream(text);
+      const { audioStream } = await tts.toStream(prepared);
       const chunks = [];
       for await (const chunk of audioStream) chunks.push(chunk);
       const buf = Buffer.concat(chunks);
@@ -383,41 +420,67 @@ const NEGATIVE_PROMPT = [
 ].join(', ');
 
 function buildSejarahPrompt(scene, era) {
-  // Prioritas utama: image_prompt detail dari Groq (gaya CapCut)
-  if (scene.image_prompt && scene.image_prompt.trim().length > 50) {
-    // Pastikan selalu ada clay style tags di akhir
-    const base = scene.image_prompt.trim();
-    const clayTags = 'clay animation style, 3D claymation render, soft plasticine texture, smooth shiny surface, bright cheerful colors, cute chibi characters, miniature world feel, highly detailed, 8K, no text, no watermark';
-    // Jika sudah mengandung clay tags, pakai apa adanya
-    if (base.toLowerCase().includes('clay animation')) {
-      return base.substring(0, 900);
-    }
-    // Jika belum, tambahkan clay tags
-    return (base + ', ' + clayTags).substring(0, 900);
+  // ── Tag sinematik yang SELALU ditambahkan ─────────────────────
+  const CINEMATIC_TAGS = [
+    'dramatic rim lighting', 'volumetric golden light rays', 'deep shadow contrast',
+    'shallow depth of field', 'cinematic epic atmosphere',
+  ].join(', ');
+
+  const CLAY_TAGS = [
+    'clay animation style', '3D claymation render', 'soft plasticine texture',
+    'smooth shiny surface', 'bright cheerful colors', 'cute chibi characters',
+    'miniature world feel', 'highly detailed', '8K', 'no text', 'no watermark',
+  ].join(', ');
+
+  // Deteksi mood dari scene untuk menyesuaikan pencahayaan
+  const mood = (scene.mood || '').toLowerCase();
+  let moodTag = '';
+  if (mood === 'dark' || mood === 'mysterious') {
+    moodTag = 'mysterious fog, torch-lit atmosphere, deep shadows, moody';
+  } else if (mood === 'epic' || mood === 'triumphant') {
+    moodTag = 'golden hour sunlight, heroic epic lighting, lens flare';
+  } else if (mood === 'wonder') {
+    moodTag = 'magical soft glow, ethereal misty light, awe-inspiring';
+  } else if (mood === 'emotional') {
+    moodTag = 'warm backlight, soft bokeh, emotional close-up atmosphere';
+  } else {
+    moodTag = 'warm dramatic lighting, rich saturated colors';
   }
 
-  // Fallback: bangun prompt dari visual + era style (untuk kompatibilitas mundur)
+  // Prioritas utama: image_prompt detail dari Groq
+  if (scene.image_prompt && scene.image_prompt.trim().length > 50) {
+    const base = scene.image_prompt.trim()
+      .replace(/,\s*(no text|no watermark|8K|highly detailed)[^,]*/gi, '')  // hapus duplikat
+      .replace(/clay animation style[^,]*/i, '')
+      .trim().replace(/,\s*$/, '');
+
+    // Susun ulang dengan tag cinematic + clay di urutan optimal
+    const full = `${base}, ${moodTag}, ${CINEMATIC_TAGS}, ${CLAY_TAGS}`;
+    return full.substring(0, 950);
+  }
+
+  // Fallback: bangun dari visual + era style
   const visual   = (scene.visual || '').trim();
   const keywords = (scene.keywords || []).slice(0, 4).join(', ');
 
   const eraStyle = {
-    'Hindu-Buddha': 'ancient Javanese temple, gold ornaments, lotus motifs, batik patterns, red brick walls',
-    'Islam':        'Islamic geometric art, mosque architecture, Arabic calligraphy, green gold colors',
-    'Penjajahan':   'colonial era Indonesia, Dutch East Indies, sepia warm tones, historical',
-    'Pergerakan':   'Indonesian independence movement, red white flag colors, heroic pose',
-    'Kemerdekaan':  'Indonesian independence 1945, red white flag, heroic moment, patriotic',
-    'Modern':       'modern Indonesia, Garuda Pancasila, colorful batik, diverse happy people',
+    'Hindu-Buddha': 'ancient Javanese temple with intricate stone carvings, gold ornaments, lotus motifs, red brick walls overgrown with moss',
+    'Islam':        'grand Islamic mosque with geometric tilework, Arabic calligraphy inscribed on walls, crescent moon overhead',
+    'Penjajahan':   'colonial-era port of Batavia, Dutch East Indies architecture, warships in harbor, humid tropical air',
+    'Pergerakan':   '1940s Indonesian city streets, red-white flag colors, passionate crowd, revolutionary tension',
+    'Kemerdekaan':  'Indonesian independence proclamation 1945, red-white flag raised high, jubilant crowd, historical moment',
+    'Modern':       'vibrant modern Indonesia, Garuda Pancasila emblem, colorful batik, diverse smiling people',
   };
 
   return [
     visual,
     keywords,
-    eraStyle[era] || 'ancient Indonesian kingdom',
-    'clay animation style, 3D claymation render, soft plasticine texture, smooth shiny surface',
-    'bright cheerful colors, cute chibi characters, miniature world feel',
-    'highly detailed, 8K, no text, no watermark',
-    'portrait 9:16 vertical'
-  ].filter(Boolean).join(', ').substring(0, 900);
+    eraStyle[era] || 'ancient Indonesian kingdom with majestic palace',
+    moodTag,
+    CINEMATIC_TAGS,
+    CLAY_TAGS,
+    'portrait 9:16 vertical',
+  ].filter(Boolean).join(', ').substring(0, 950);
 }
 
 async function leonardoGenerateImage(scene, era) {
@@ -431,7 +494,7 @@ async function leonardoGenerateImage(scene, era) {
     prompt,
     negative_prompt: NEGATIVE_PROMPT,
     modelId: 'aa77f04e-3eec-4034-9c07-d0f619684628', // Lightning XL
-    width: 576, height: 1024,
+    width: 720, height: 1280,
     num_images: 1,
     guidance_scale: 7,
     num_inference_steps: 10,
@@ -567,63 +630,106 @@ async function generateThumbnail(script, era, outDir) {
 function buildKenBurns(sceneIdx, dur, w, h) {
   const fps = 24;
   const TF  = dur * fps;
-  const OW  = Math.round(w * 1.20);  // 691
-  const OH  = Math.round(h * 1.20);  // 1229
-  const PX  = OW - w;                // 115
-  const PY  = OH - h;                // 205
-  const zx  = Math.max(1, Math.round((OW - w) / TF));
-  const zy  = Math.max(1, Math.round((OH - h) / TF));
-  const px  = Math.max(1, Math.round(PX / TF));
-  const py  = Math.max(1, Math.round(PY / TF));
+  // 20% overscan supaya ada ruang gerak
+  const OW  = Math.round(w * 1.22);
+  const OH  = Math.round(h * 1.22);
+  const PX  = OW - w;
+  const PY  = OH - h;
 
-  // Semua pattern: scale dua kali
-  //   Pass 1: scale=iw:ih:eval=frame  → aktifkan frame-eval context
-  //   Pass 2: scale='W(n)':'H(n)':eval=frame:flags=lanczos → zoom animasi
-  // crop pakai ekspresi (iw-w)/2 atau offset*n
+  // ── Easing helpers (quadratic, nilai dalam pixel/frame) ─────
+  // ease-in  zoom: mulai lambat, makin cepat  → n*n/TF
+  // ease-out zoom: mulai cepat, makin lambat  → TF*(1-(TF-n)*(TF-n)/TF/TF)*px
+  // linear (fallback): n/TF * totalPx
+  const zxE = Math.max(1, Math.round((OW - w) / TF));  // px/frame zoom
+  const zyE = Math.max(1, Math.round((OH - h) / TF));
+  const pxE = Math.max(1, Math.round(PX / TF));
+  const pyE = Math.max(1, Math.round(PY / TF));
+
+  // ── Handheld shake parameters ────────────────────────────────
+  // 3 profil: halus (A), sedang (B), kuat (C)
+  const SHAKE = [
+    { amp: 2.5, freq: 7  },   // A — hampir tidak terasa, subtle
+    { amp: 3.5, freq: 5  },   // B — sedikit gerak tangan
+    { amp: 2.0, freq: 11 },   // C — tremor frekuensi tinggi
+  ];
+  const sh  = SHAKE[sceneIdx % SHAKE.length];
+  const sAx = sh.amp.toFixed(1);
+  const sAy = (sh.amp * 0.7).toFixed(1);
+  const sF  = sh.freq;
+
+  // ── Rotation (tilt kecil, imersif) ──────────────────────────
+  const TILTS = [0, 0.012, -0.010, 0.015, -0.008, 0.010, -0.015, 0];
+  const tilt  = TILTS[sceneIdx % TILTS.length];  // radian — ≈0.5-0.86°
+
+  // ── 8 patterns pakai easing + shake ─────────────────────────
   const patterns = [
-    // 0: Zoom in dari tengah
-    { label: 'zoom-in-center',
-      w2: `${OW}-${zx}*n`, h2: `${OH}-${zy}*n`,
-      cx: `(iw-${w})/2`,   cy: `(ih-${h})/2` },
-    // 1: Zoom out + pan kanan
+    // 0: Zoom in ease-in + shake A
+    { label: 'zoom-in-ease',
+      w2: `${OW}-${zxE}*n*n/${TF}`,
+      h2: `${OH}-${zyE}*n*n/${TF}`,
+      cx: `(iw-${w})/2+${sAx}*sin(2*PI*n/${sF})`,
+      cy: `(ih-${h})/2+${sAy}*cos(2*PI*n/${sF})` },
+    // 1: Zoom out ease-out + pan kanan
     { label: 'zoom-out-pan-right',
-      w2: `${w}+${zx}*n`,  h2: `${h}+${zy}*n`,
-      cx: `${px}*n`,        cy: `0` },
-    // 2: Pan kanan (zoom tetap)
-    { label: 'pan-right',
-      w2: `${OW}`,          h2: `${OH}`,
-      cx: `${px}*n`,        cy: `${Math.round(PY/2)}` },
-    // 3: Zoom in + pan ke atas
+      w2: `${w}+${zxE}*(${TF}-n)*(${TF}-n)/${TF}/${TF}*${OW - w}/${Math.max(1,zxE)}`,
+      h2: `${h}+${zyE}*(${TF}-n)*(${TF}-n)/${TF}/${TF}*${OH - h}/${Math.max(1,zyE)}`,
+      cx: `${pxE}*n+${sAx}*sin(2*PI*n/${sF+2})`,
+      cy: `0+${sAy}*cos(2*PI*n/${sF})` },
+    // 2: Pan kanan smooth + shake
+    { label: 'pan-right-shake',
+      w2: `${OW}`,
+      h2: `${OH}`,
+      cx: `${pxE}*n+${sAx}*sin(2*PI*n/${sF})`,
+      cy: `${Math.round(PY/2)}+${sAy}*cos(2*PI*n/${sF+1})` },
+    // 3: Zoom in + pan atas ease-in
     { label: 'zoom-in-pan-up',
-      w2: `${OW}-${zx}*n`, h2: `${OH}-${zy}*n`,
-      cx: `(iw-${w})/2`,   cy: `${PY}-${py}*n` },
-    // 4: Zoom out dari pojok kiri bawah
+      w2: `${OW}-${zxE}*n*n/${TF}`,
+      h2: `${OH}-${zyE}*n*n/${TF}`,
+      cx: `(iw-${w})/2+${sAx}*sin(2*PI*n/${sF})`,
+      cy: `${PY}-${pyE}*n+${sAy}*sin(2*PI*n/${sF-1>1?sF-1:3})` },
+    // 4: Zoom out pojok kiri bawah + shake
     { label: 'zoom-out-bottom-left',
-      w2: `${w}+${zx}*n`,  h2: `${h}+${zy}*n`,
-      cx: `0`,              cy: `ih-${h}` },
-    // 5: Pan diagonal
+      w2: `${w}+${zxE}*n`,
+      h2: `${h}+${zyE}*n`,
+      cx: `0+${sAx}*sin(2*PI*n/${sF})`,
+      cy: `ih-${h}+${sAy}*cos(2*PI*n/${sF})` },
+    // 5: Pan diagonal + shake lemah
     { label: 'diagonal-pan',
-      w2: `${OW}`,          h2: `${OH}`,
-      cx: `${Math.round(px*0.7)}*n`, cy: `${Math.round(py*0.7)}*n` },
-    // 6: Zoom in + pan kiri
+      w2: `${OW}`,
+      h2: `${OH}`,
+      cx: `${Math.round(pxE*0.7)}*n+${sAx}*sin(2*PI*n/${sF+3})`,
+      cy: `${Math.round(pyE*0.7)}*n+${sAy}*cos(2*PI*n/${sF})` },
+    // 6: Zoom in + pan kiri ease-in
     { label: 'zoom-in-pan-left',
-      w2: `${OW}-${zx}*n`, h2: `${OH}-${zy}*n`,
-      cx: `${PX}-${px}*n`, cy: `(ih-${h})/2` },
-    // 7: Pan ke atas
-    { label: 'pan-up',
-      w2: `${OW}`,          h2: `${OH}`,
-      cx: `${Math.round(PX/2)}`, cy: `${PY}-${py}*n` },
+      w2: `${OW}-${zxE}*n*n/${TF}`,
+      h2: `${OH}-${zyE}*n*n/${TF}`,
+      cx: `${PX}-${pxE}*n+${sAx}*sin(2*PI*n/${sF})`,
+      cy: `(ih-${h})/2+${sAy}*cos(2*PI*n/${sF+1})` },
+    // 7: Pan ke atas + shake halus
+    { label: 'pan-up-shake',
+      w2: `${OW}`,
+      h2: `${OH}`,
+      cx: `${Math.round(PX/2)}+${sAx}*sin(2*PI*n/${sF})`,
+      cy: `${PY}-${pyE}*n+${sAy}*cos(2*PI*n/${sF})` },
   ];
 
   const p = patterns[sceneIdx % patterns.length];
-  const filter = [
+
+  // ── Susun filter chain ────────────────────────────────────────
+  const filterParts = [
     `scale=iw:ih:eval=frame`,
     `scale='${p.w2}':'${p.h2}':eval=frame:flags=lanczos`,
     `crop=${w}:${h}:'${p.cx}':'${p.cy}'`,
-    `setsar=1`,
-  ].join(',');
+  ];
 
-  return { filter, label: p.label };
+  // Tambah tilt ringan jika ada (tidak untuk scene 0 & 7 — biar steady)
+  if (tilt !== 0) {
+    filterParts.push(`rotate='${tilt}:fillcolor=black@0'`);
+  }
+
+  filterParts.push(`setsar=1`);
+
+  return { filter: filterParts.join(','), label: p.label };
 }
 
 // Fade-in / Fade-out pada video clip
@@ -635,11 +741,8 @@ function buildFadeFilter(dur, fps = 24) {
 }
 
 // ────────────────────────────────────────────────────────────────
-//  SUBTITLE — Generate SRT dari scenes + durasi audio
-// ────────────────────────────────────────────────────────────────
-// ────────────────────────────────────────────────────────────────
 //  ASS SUBTITLE — Word-by-word, kata penting di-highlight
-//  Format .ass burn langsung ke video via FFmpeg
+//  Upgrade: scale-up effect, SuperHighlight layer, shadow
 // ────────────────────────────────────────────────────────────────
 const HIGHLIGHT_WORDS = [
   'kerajaan','sultan','raja','ratu','maharaja','panglima','prajurit',
@@ -649,8 +752,15 @@ const HIGHLIGHT_WORDS = [
   'gajah mada','hayam wuruk','ken arok','tribhuwana','raden wijaya',
   'diponegoro','sukarno','hatta','kartini','pattimura',
   'indonesia','nusantara','melayu','jawa','sumatera','kalimantan',
-  'tahukah','fakta','mengejutkan','luar biasa','pertama','terbesar',
-  'terkuat','terkenal','legendaris','bersejarah','hebat','kuat',
+  'tahukah','fakta','mengejutkan','bersejarah','legendaris','terkuat',
+  'terbesar','pertama kali','berhasil','rahasia','sumpah','janji',
+];
+
+// Super-highlight: lebih besar + kuning cerah + bold (untuk kata paling dramatis)
+const SUPER_HIGHLIGHT_WORDS = [
+  'tahukah','mengejutkan','luar biasa','wow','pertama kali',
+  'terbesar','terkuat','rahasia','sumpah','tidak pernah',
+  'ternyata','fakta','misteri',
 ];
 
 function generateASSSubtitle(scenes, scenesAudio, outDir) {
@@ -662,7 +772,11 @@ function generateASSSubtitle(scenes, scenesAudio, outDir) {
     return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(cs).padStart(2,'0')}`;
   };
 
-  // Style: Normal di tengah bawah, Highlight lebih besar + kuning
+  // ── ASS styles ─────────────────────────────────────────────────
+  // Shadow=2 di semua style, MarginV=80 (lebih ke bawah untuk sosmed)
+  // Normal     : putih, ukuran 22, shadow 2
+  // Highlight  : kuning, ukuran 27, bold, scale 115%, shadow 2
+  // SuperHL    : cyan terang, ukuran 30, bold, scale 130%, shadow 3
   const header = `[Script Info]
 ScriptType: v4.00+
 PlayResX: ${VIDEO_W}
@@ -671,8 +785,9 @@ WrapStyle: 1
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,Strikeout,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Normal,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&HAA000000,0,0,0,0,100,100,0.5,0,1,2.5,1,2,20,20,60,1
-Style: Highlight,Arial,26,&H0000FFFF,&H000000FF,&H00000000,&HAA000000,-1,0,0,0,100,100,0.5,0,1,2.5,1,2,20,20,60,1
+Style: Normal,Arial,22,&H00FFFFFF,&H000000FF,&H00000000,&HBB000000,0,0,0,0,100,100,0.5,0,1,2.5,2,2,20,20,80,1
+Style: Highlight,Arial,27,&H0000FFFF,&H000000FF,&H00000000,&HBB000000,-1,0,0,0,115,115,0.5,0,1,2.5,2,2,20,20,80,1
+Style: SuperHL,Arial,30,&H00FFFF00,&H000000FF,&H00220022,&HBB000000,-1,0,0,0,130,130,0.5,0,1,3.0,3,2,20,20,80,1
 
 [Events]
 Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
@@ -691,12 +806,24 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
 
     words.forEach((word, wi) => {
       const wStart = cursor + wi * secPerWord;
-      const wEnd   = Math.min(wStart + secPerWord * 1.15, cursor + dur);
+      const wEnd   = Math.min(wStart + secPerWord * 1.18, cursor + dur);
       const cleanW = word.replace(/[^\w\s\u00C0-\u024F]/g, '').toLowerCase();
-      const isKey  = HIGHLIGHT_WORDS.some(k => cleanW.includes(k));
-      const style  = isKey ? 'Highlight' : 'Normal';
-      // Kata highlight: bold + warna kuning; normal: putih
-      const display = isKey ? `{\\b1}${word}{\\b0}` : word;
+
+      const isSuper = SUPER_HIGHLIGHT_WORDS.some(k => cleanW.includes(k));
+      const isKey   = !isSuper && HIGHLIGHT_WORDS.some(k => cleanW.includes(k));
+
+      let style, display;
+      if (isSuper) {
+        style   = 'SuperHL';
+        display = `{\\b1\\fscx130\\fscy130}${word}{\\r}`;
+      } else if (isKey) {
+        style   = 'Highlight';
+        display = `{\\b1\\fscx115\\fscy115}${word}{\\b0\\r}`;
+      } else {
+        style   = 'Normal';
+        display = word;
+      }
+
       lines.push(`Dialogue: 0,${toASSTime(wStart)},${toASSTime(wEnd)},${style},,0,0,0,,${display}`);
       wordCount++;
     });
@@ -706,7 +833,7 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
 
   const assPath = `${outDir}/subtitle.ass`;
   fs.writeFileSync(assPath, lines.join('\n'), 'utf8');
-  ok(`subtitle.ass dibuat (word-by-word, ${wordCount} kata, ${scenes.length} scene)`);
+  ok(`subtitle.ass dibuat (word-by-word, ${wordCount} kata, ${scenes.length} scene, ${lines.length-1} cue)`);
 
   // Tetap simpan .srt sebagai cadangan
   generateSubtitleSRT(scenes, scenesAudio, outDir);
@@ -1082,14 +1209,14 @@ async function renderEpisode(jadwalItem) {
         ...textFilters,
         fadeFilter,
       ].join(',');
-      cmd = `"${FFMPEG}" -y -i "${s.motionFile}" -i "${s.audioFile}" -vf "${vf}" -c:v libx264 -preset fast -crf 22 -pix_fmt yuv420p -r 24 -c:a aac -b:a 128k -shortest "${clipOut}"`;
+      cmd = `"${FFMPEG}" -y -i "${s.motionFile}" -i "${s.audioFile}" -vf "${vf}" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -r 24 -c:a aac -b:a 160k -shortest "${clipOut}"`;
     } else {
       // ── Sumber gambar statis: Ken Burns + teks overlay + fade ──
       const { filter: kbFilter, label: kbLabel } = buildKenBurns(s.n - 1, dur, VIDEO_W, VIDEO_H);
       const fadeFilter = buildFadeFilter(dur);
       const vf = [kbFilter, `setsar=1`, ...textFilters, fadeFilter].join(',');
       log(`     🎥 Ken Burns [${kbLabel}] dur=${dur}s`);
-      cmd = `"${FFMPEG}" -y -loop 1 -framerate 24 -t ${dur + 0.5} -i "${s.imgFile}" -i "${s.audioFile}" -vf "${vf}" -c:v libx264 -preset fast -crf 22 -pix_fmt yuv420p -r 24 -c:a aac -b:a 128k -t ${dur} "${clipOut}"`;
+      cmd = `"${FFMPEG}" -y -loop 1 -framerate 24 -t ${dur + 0.5} -i "${s.imgFile}" -i "${s.audioFile}" -vf "${vf}" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -r 24 -c:a aac -b:a 160k -t ${dur} "${clipOut}"`;
     }
 
     try {
@@ -1108,7 +1235,7 @@ async function renderEpisode(jadwalItem) {
             `setsar=1`,
             ...textFilters,
           ].join(',');
-          const cmdFallback = `"${FFMPEG}" -y -loop 1 -t ${dur} -i "${s.imgFile}" -i "${s.audioFile}" -vf "${vfSimple}" -c:v libx264 -preset fast -crf 22 -pix_fmt yuv420p -r 24 -c:a aac -b:a 128k -t ${dur} "${clipOut}"`;
+          const cmdFallback = `"${FFMPEG}" -y -loop 1 -t ${dur} -i "${s.imgFile}" -i "${s.audioFile}" -vf "${vfSimple}" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -r 24 -c:a aac -b:a 160k -t ${dur} "${clipOut}"`;
           execSync(cmdFallback, { stdio:'pipe', timeout:90000, shell:'cmd.exe' });
           const kb = Math.round(fs.statSync(clipOut).size / 1024);
           ok(`Clip ${s.n} [fallback static]: ${dur}s → ${kb}KB`);
@@ -1137,7 +1264,7 @@ async function renderEpisode(jadwalItem) {
 
   try {
     execSync(
-      `"${FFMPEG}" -y -f concat -safe 0 -i "${concatList}" -c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p -c:a aac -b:a 128k "${finalVideo}"`,
+      `"${FFMPEG}" -y -f concat -safe 0 -i "${concatList}" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -c:a aac -b:a 160k "${finalVideo}"`,
       { stdio:'pipe', timeout:180000, shell:'cmd.exe' }
     );
     const mb = (fs.statSync(finalVideo).size / (1024*1024)).toFixed(2);
@@ -1165,7 +1292,7 @@ async function renderEpisode(jadwalItem) {
   try {
     fs.renameSync(finalVideo, concatNoSub);
     execSync(
-      `"${FFMPEG}" -y -i "${concatNoSub}" -vf "ass='${assEsc}'" -c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p -c:a copy "${finalVideo}"`,
+      `"${FFMPEG}" -y -i "${concatNoSub}" -vf "ass='${assEsc}'" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -c:a copy "${finalVideo}"`,
       { stdio:'pipe', timeout:300000, shell:'cmd.exe' }
     );
     fs.unlinkSync(concatNoSub); // hapus file sementara
