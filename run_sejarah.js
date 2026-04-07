@@ -43,7 +43,7 @@ const MOTION_ALL = process.argv.includes('--motion-all');
 const RUN_SEMUA  = process.argv.includes('--semua');
 const SHOW_LIST  = process.argv.includes('--list');
 const HARI_ARG   = (() => { const i = process.argv.indexOf('--hari'); return i > -1 ? parseInt(process.argv[i+1]) : null; })();
-const USE_LONG   = process.argv.includes('--long'); // 15 scene, 3-5 menit, DYK segments
+const USE_LONG   = !process.argv.includes('--short'); // Default: 15 scene, 3-5 menit (pakai --short untuk 10 scene)
 
 // ── VIDEO SETTINGS ─────────────────────────────────────────────
 const VIDEO_W = 720;   // 9:16 portrait — upgrade dari 576
@@ -81,7 +81,10 @@ function getAudioDuration(f) {
   try {
     const out = execSync(`"${FFPROBE}" -v quiet -show_entries format=duration -of csv=p=0 "${f}"`,
       { encoding:'utf8', timeout:8000, shell:'cmd.exe' });
-    return Math.ceil(parseFloat(out.trim()) + 0.5) || 12;
+    const raw = parseFloat(out.trim());
+    if (isNaN(raw) || raw <= 0) return 12;
+    // Kembalikan durasi ASLI (desimal) + 0.3s safety buffer
+    return Math.round((raw + 0.3) * 100) / 100;
   } catch(e) { return 12; }
 }
 
@@ -106,12 +109,13 @@ function escTxt(t) {
     .substring(0, 160);
 }
 
-function wrapTxt(t, videoW) {
+function wrapTxt(t, videoW, maxLines = 5) {
   const CONFIGS = [
-    { size: 32, coef: 0.65 }, { size: 28, coef: 0.63 },
-    { size: 24, coef: 0.60 }, { size: 20, coef: 0.57 },
+    { size: 28, coef: 0.63 }, { size: 24, coef: 0.60 },
+    { size: 22, coef: 0.58 }, { size: 20, coef: 0.57 },
+    { size: 18, coef: 0.55 }, { size: 16, coef: 0.53 },
   ];
-  const usableW = videoW - 24;
+  const usableW = videoW - 28;
   for (const { size, coef } of CONFIGS) {
     const cpl = Math.floor(usableW / (size * coef));
     const words = t.split(' ');
@@ -125,20 +129,19 @@ function wrapTxt(t, videoW) {
       }
     }
     if (cur) lines.push(cur);
-    if (lines.length <= 3) return { lines: lines.slice(0,3), fontSize: size };
+    if (lines.length <= maxLines) return { lines: lines.slice(0, maxLines), fontSize: size };
   }
-  // Fallback
-  const coef = 0.57, size = 20;
+  // Fallback: font terkecil, potong di maxLines
+  const coef = 0.53, size = 16;
   const cpl = Math.floor(usableW / (size * coef));
   const words = t.split(' '); const lines = []; let cur = '';
   for (const w of words) {
     const test = cur ? cur + ' ' + w : w;
     if (test.length <= cpl) { cur = test; }
-    else { if (cur) lines.push(cur); if (lines.length >= 3) break; cur = w; }
+    else { if (cur) lines.push(cur); if (lines.length >= maxLines) break; cur = w; }
   }
-  if (lines.length < 3 && cur) lines.push(cur);
-  const result = lines.slice(0,3);
-  if (result.length === 3) { const l = result[2]; if (l.length+3 <= cpl) result[2] = l+'...'; }
+  if (lines.length < maxLines && cur) lines.push(cur);
+  const result = lines.slice(0, maxLines);
   return { lines: result, fontSize: size };
 }
 
@@ -193,34 +196,70 @@ Kamu menguasai teknik storytelling YouTube Shorts dan TikTok yang membuat penont
 GAYA STORYTELLING:
 - Dramatis, misterius, dan penuh ketegangan seperti trailer film
 - Bahasa Indonesia yang kuat, padat, dan mengejutkan
-- Gunakan kalimat pendek dan kuat: "Mereka tidak pernah menyangka...", "Rahasianya tersimpan selama berabad-abad...", "Tidak ada yang tahu bahwa..."
-- Sesekali gunakan "Kamu tidak akan percaya..." atau "Ini bukan cerita biasa..."
+- Gunakan kalimat pendek dan kuat: "Mereka tidak pernah menyangka...", "Rahasianya tersimpan selama berabad-abad..."
 - Bangun rasa PENASARAN dan KETEGANGAN di setiap scene
 - Scene terakhir HARUS memberikan emotional punch / twist mengejutkan
 
 STRUKTUR WAJIB:
-- Scene 1 (HOOK): Fakta mengejutkan / pertanyaan misterius yang langsung menarik — MAX 10 kata yang sangat kuat
+- Scene 1 (HOOK): Fakta mengejutkan / pertanyaan misterius yang langsung menarik
 - Scene 2-3 (BUILD): Bangun latar, masuk ke inti cerita dengan tempo cepat
 - Scene 4-7 (CLIMAX): Drama puncak, fakta-fakta mencengangkan, konflik
 - Scene 8-9 (TWIST): Hal mengejutkan yang jarang diketahui
 - Scene 10 (ENDING): Emotional close / call to action yang kuat
 
-IMAGE PROMPT — WAJIB CINEMATIC & DETAIL:
-Setiap image_prompt HARUS mengandung semua elemen ini:
-1. TOKOH dengan ekspresi dramatis (warna kostum spesifik, aksesori detail)
-2. SETTING yang imersif (arsitektur era, cuaca, waktu hari)
-3. PENCAHAYAAN CINEMATIC: "dramatic rim lighting", "volumetric golden light", "deep shadow contrast", "torch-lit atmosphere", "misty dawn light"
-4. DEPTH: "shallow depth of field", "foreground elements blurred", "layers of depth"
-5. MOOD: "epic cinematic atmosphere", "mysterious fog", "dramatic tension"
-6. Gaya visual: clay animation style, 3D claymation render, soft plasticine texture, smooth shiny surface, bright cheerful colors, cute chibi characters, miniature world feel, highly detailed, 8K, no text, no watermark
+████████████████████████████████████████████████████████████████████
+██  IMAGE PROMPT — ATURAN PALING KRITIS (PELANGGARAN = GAGAL)    ██
+████████████████████████████████████████████████████████████████████
 
-CONTOH HOOK KUAT:
-- "Kerajaan ini menghilang dalam semalam — dan tidak ada yang tahu kenapa."
-- "Satu sumpah mengubah nasib seluruh Nusantara selamanya."
-- "Ia hanya seorang pemuda — tapi menaklukkan setengah dunia."
+PROSES MENULIS image_prompt:
+LANGKAH 1: Baca narasi scene tersebut
+LANGKAH 2: Identifikasi AKSI SPESIFIK yang terjadi (siapa melakukan apa, di mana, bagaimana)
+LANGKAH 3: Terjemahkan AKSI itu ke bahasa Inggris secara LITERAL sebagai image_prompt
+LANGKAH 4: Tambahkan detail visual (kostum, warna, setting, lighting, clay tags)
 
-VARIASI HOOK: Kamu akan menghasilkan 3 variasi hook untuk setiap script.
-Sistem akan memilih yang terbaik secara otomatis.`;
+LARANGAN KERAS:
+❌ DILARANG: "berdiri di atas bukit"
+❌ DILARANG: "memandang ke horizon"
+❌ DILARANG: "berlutut di hadapan raja" (kecuali narasi memang tentang itu)
+❌ DILARANG: Mengulangi pose/setting yang sama di 2 scene atau lebih
+❌ DILARANG: Image prompt yang tidak ada hubungannya dengan narasi
+
+CONTOH CARA YANG BENAR:
+┌─────────────────────────────────────────────────────────────┐
+│ Narasi: "Gajah Mada mengucapkan sumpah Palapa di depan     │
+│          seluruh pejabat kerajaan, ia berjanji tidak akan   │
+│          makan palapa sampai Nusantara bersatu"             │
+│                                                             │
+│ ✅ BENAR: "Gajah Mada in red and gold royal robe, standing  │
+│    with raised right fist, dramatically declaring an oath   │
+│    before a crowded royal court full of ministers and        │
+│    nobles sitting on both sides, a golden plate of palapa   │
+│    spice on a table in front, torch-lit grand hall with     │
+│    tall stone pillars, dramatic rim lighting..."            │
+│                                                             │
+│ ❌ SALAH: "Gajah Mada berdiri di atas bukit, memandang      │
+│    ke horizon, dengan volumetric golden light..."           │
+│    (TIDAK ADA HUBUNGAN dengan narasi!)                      │
+└─────────────────────────────────────────────────────────────┘
+
+CONTOH LAIN:
+┌─────────────────────────────────────────────────────────────┐
+│ Narasi: "Armada laut Majapahit berlayar menuju Bali untuk   │
+│          menaklukkan kerajaan terakhir"                     │
+│                                                             │
+│ ✅ BENAR: "A fleet of 20 large Majapahit warships with red  │
+│    sails sailing across a vast blue ocean toward a          │
+│    volcanic island (Bali) in the distance, warriors with    │
+│    spears standing on deck, dramatic sunset..."             │
+│                                                             │
+│ ❌ SALAH: "Gajah Mada memandang peta Nusantara di ruangan"  │
+│    (SAMA SEKALI BUKAN adegan armada berlayar!)              │
+└─────────────────────────────────────────────────────────────┘
+
+TAG WAJIB DI AKHIR SETIAP image_prompt:
+clay animation style, 3D claymation render, soft plasticine texture, smooth shiny surface, bright cheerful colors, cute chibi characters, miniature world feel, highly detailed, 8K, no text, no watermark
+
+VARIASI HOOK: Kamu akan menghasilkan 3 variasi hook untuk setiap script.`;
 
   const longRules = longFormat ? `
 STRUKTUR 15 SCENE (FORMAT PANJANG):
@@ -260,7 +299,7 @@ Format JSON (WAJIB PERSIS):
       "emo": "shocked",
       "narration": "WAJIB ${wordMin}-${wordMax} kata. Kalimat HOOK yang langsung menghantam — dramatis, misterius, mengejutkan. Buat penonton tidak bisa berhenti.",
       "label": "JUDUL SCENE CAPS MAX 26 KARAKTER",
-      "image_prompt": "BAHASA INGGRIS WAJIB — nama tokoh + ekspresi dramatis + warna kostum spesifik + setting detail + dramatic rim lighting OR volumetric golden light + shallow depth of field + epic cinematic atmosphere + clay animation style, 3D claymation render, soft plasticine texture, smooth shiny surface, bright cheerful colors, cute chibi characters, miniature world feel, highly detailed, 8K, no text, no watermark",
+      "image_prompt": "BAHASA INGGRIS WAJIB — GAMBARKAN ISI NARASI: sebutkan AKSI UTAMA sesuai narasi + nama tokoh + kostum spesifik + lokasi yang SESUAI NARASI + dramatic rim lighting + shallow depth of field + clay animation style, 3D claymation render, soft plasticine texture, smooth shiny surface, bright cheerful colors, cute chibi characters, miniature world feel, highly detailed, 8K, no text, no watermark",
       "visual": "deskripsi singkat max 12 kata",
       "mood": "epic|mysterious|emotional|triumphant|dark|wonder"
     }
@@ -271,9 +310,12 @@ RULES KETAT:
 1. TEPAT ${numScenes} scene
 2. narration WAJIB ${wordMin}-${wordMax} kata per scene (HITUNG!)
 3. hook_variants: 3 variasi berbeda karakter (dramatis / misterius / mengejutkan)
-4. image_prompt: SETIAP scene HARUS BERBEDA pose/lokasi/aktivitas + selalu ada lighting cinematic
-5. Scene terakhir: berikan emotional punch / twist yang tidak terduga
-6. JSON SAJA, TANPA markdown, TANPA komentar`;
+4. ⚠️ image_prompt: BACA NARASI DULU → tulis image_prompt yang menggambarkan ISI NARASI itu
+5. ⚠️ image_prompt: setiap scene HARUS adegan/pose/lokasi/aksi yang BERBEDA
+6. ⚠️ image_prompt: DILARANG berulang "berdiri di bukit", "memandang horizon", "berlutut di istana" — GAMBARKAN AKSI NYATA
+7. image_prompt: harus mengandung KATA KERJA AKSI (declaring, fighting, sailing, building, running, pointing, holding, etc.)
+8. Scene terakhir: berikan emotional punch / twist yang tidak terduga
+9. JSON SAJA, TANPA markdown, TANPA komentar`;
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
@@ -300,6 +342,9 @@ RULES KETAT:
 
       if (!script.scenes || script.scenes.length < 5) { warn('Script kurang lengkap'); return null; }
 
+      // ── Post-processing: validasi & perbaiki image_prompt ────
+      fixImagePrompts(script);
+
       // Pilih hook terbaik dari 3 variasi (terpanjang = paling detail)
       if (script.hook_variants?.length >= 3) {
         const best = script.hook_variants.reduce((a, b) => b.length > a.length ? b : a);
@@ -317,6 +362,140 @@ RULES KETAT:
   }
   warn('Groq gagal setelah 3x retry');
   return null;
+}
+
+// ────────────────────────────────────────────────────────────────
+//  Post-processing: Validasi & perbaiki image_prompt yang generik
+//  Jika image_prompt tidak cocok dengan narasi, buat ulang dari narasi
+// ────────────────────────────────────────────────────────────────
+
+// Kata-kata "generik" yang menandakan image_prompt TIDAK menggambarkan aksi
+const GENERIC_PATTERNS = [
+  /berdiri di atas bukit/i,
+  /melihat ke arah horizon/i,
+  /memandang ke (arah )?(langit|horizon|laut|cakrawala)/i,
+  /berdiri di depan (candi|patung|istana)/i,
+  /berlutut di hadapan/i,
+  /standing on (a |the )?hill/i,
+  /looking at (the )?(sky|horizon|sea)/i,
+  /gazing (at|into)/i,
+];
+
+function isImagePromptGeneric(imgPrompt, narration) {
+  const p = (imgPrompt || '').toLowerCase();
+  // 1. Cek apakah mengandung pola generik
+  const hasGeneric = GENERIC_PATTERNS.some(rx => rx.test(p));
+  // 2. Cek apakah terlalu pendek (kurang detail)
+  const tooShort = p.replace(/clay animation.*$/i, '').trim().length < 80;
+  // 3. Cek apakah ada kata kerja aksi (declaring, fighting, sailing, etc.)
+  const actionVerbs = /\b(declaring|fighting|sailing|building|running|pointing|holding|raising|marching|commanding|riding|carrying|attacking|defending|negotiating|trading|writing|reading|praying|celebrating|crowning|kneeling|confronting|fleeing|climbing|swimming|crafting|forging|leading|ordering|presenting|burning|destroying|discovering|teaching|gathering|lifting|throwing|breaking|embracing)\b/i;
+  const hasAction = actionVerbs.test(p);
+
+  return hasGeneric || tooShort || !hasAction;
+}
+
+function narrationToImagePrompt(narration, era) {
+  // Terjemahkan kata kunci narasi Indonesia → English visual scene
+  const nar = (narration || '').trim();
+
+  // Map kata kunci umum
+  const keywordMap = [
+    [/bersumpah|sumpah|berjanji|janji/i, 'dramatically declaring a solemn oath with raised fist'],
+    [/berperang|perang|menyerang|serangan/i, 'leading warriors into battle with weapons raised'],
+    [/berlayar|armada|kapal|pelayaran/i, 'sailing on a large wooden warship across the ocean'],
+    [/membangun|membangun kembali|mendirikan/i, 'overseeing the construction of a grand structure'],
+    [/menaklukkan|penaklukan|ekspansi/i, 'commanding a large army marching toward a distant kingdom'],
+    [/perdagangan|dagang|pedagang|pasar/i, 'trading goods at a bustling harbor marketplace'],
+    [/menulis|naskah|prasasti|kitab/i, 'carefully carving inscriptions on a stone tablet'],
+    [/mengajarkan|mengajar|guru|murid/i, 'teaching disciples in a grand temple courtyard'],
+    [/mahkota|dinobatkan|penobatan/i, 'being crowned in a grand coronation ceremony'],
+    [/meninggal|wafat|kejatuhan|runtuh/i, 'a dramatic scene of a crumbling kingdom with people mourning'],
+    [/bersatu|menyatukan|persatuan/i, 'joining hands with leaders from different kingdoms as a sign of unity'],
+    [/kerajaan|istana|keraton/i, 'standing in the grand throne room of a majestic palace'],
+    [/agama|hindu|buddha|islam/i, 'praying at an ancient temple with intricate religious carvings'],
+    [/kemerdekaan|merdeka|proklamasi/i, 'raising a flag triumphantly in front of a cheering crowd'],
+    [/rahasia|tersembunyi|misteri/i, 'discovering a hidden ancient scroll in a secret underground chamber'],
+    [/warisan|peninggalan|sekarang/i, 'presenting ancient artifacts in a modern museum setting'],
+  ];
+
+  let actionDesc = '';
+  for (const [rx, desc] of keywordMap) {
+    if (rx.test(nar)) { actionDesc = desc; break; }
+  }
+  if (!actionDesc) actionDesc = 'performing an important historical action in a dramatic setting';
+
+  // Cari nama tokoh dari narasi
+  const namePatterns = [
+    /gajah mada/i, /hayam wuruk/i, /tribhuwana/i, /raden wijaya/i,
+    /ken arok/i, /ken dedes/i, /airlangga/i, /balaputradewa/i,
+    /diponegoro/i, /sukarno/i, /hatta/i, /kartini/i,
+    /sultan agung/i, /sultan hasanuddin/i, /pattimura/i,
+    /cut nyak dien/i, /tuanku imam bonjol/i, /soekarno/i,
+  ];
+  let charName = 'the historical figure';
+  for (const rx of namePatterns) {
+    const m = nar.match(rx);
+    if (m) { charName = m[0]; break; }
+  }
+
+  const eraSettings = {
+    'Hindu-Buddha': 'ancient Javanese kingdom setting with stone temples and gold ornaments',
+    'Islam':        'Islamic-era Nusantara with mosque domes and geometric art',
+    'Penjajahan':   'colonial-era Indonesian port with Dutch buildings',
+    'Pergerakan':   '1940s revolutionary Indonesian city streets',
+    'Kemerdekaan':  'Indonesian independence era with red and white flags',
+    'Modern':       'modern Indonesian cityscape with traditional elements',
+  };
+  const setting = eraSettings[era] || 'ancient Indonesian kingdom with grand architecture';
+
+  return `Cute chibi ${charName} in detailed traditional costume with specific colors, ${actionDesc}, ${setting}, dramatic rim lighting, volumetric light rays, shallow depth of field, cinematic atmosphere, clay animation style, 3D claymation render, soft plasticine texture, smooth shiny surface, bright cheerful colors, cute chibi characters, miniature world feel, highly detailed, 8K, no text, no watermark`;
+}
+
+function fixImagePrompts(script) {
+  const era = script.era || '';
+  let fixed = 0;
+
+  // Juga deteksi duplikat — jika 2+ scene punya prompt yang >70% mirip
+  const prompts = script.scenes.map(s => (s.image_prompt || '').toLowerCase().replace(/clay animation.*$/i,'').trim());
+
+  for (let i = 0; i < script.scenes.length; i++) {
+    const s = script.scenes[i];
+    const isGeneric = isImagePromptGeneric(s.image_prompt, s.narration);
+
+    // Cek duplikat: apakah mirip dengan scene sebelumnya?
+    let isDuplicate = false;
+    for (let j = 0; j < i; j++) {
+      const similarity = stringSimilarity(prompts[i], prompts[j]);
+      if (similarity > 0.6) { isDuplicate = true; break; }
+    }
+
+    if (isGeneric || isDuplicate) {
+      const oldPrompt = (s.image_prompt || '').substring(0, 60);
+      s.image_prompt = narrationToImagePrompt(s.narration, era);
+      fixed++;
+      warn(`Scene ${s.n}: image_prompt diperbaiki (${isGeneric ? 'generik' : 'duplikat'}): "${oldPrompt}..." → rewritten from narration`);
+    }
+  }
+
+  if (fixed > 0) {
+    info(`📝 ${fixed}/${script.scenes.length} image_prompt diperbaiki karena tidak cocok dengan narasi`);
+  } else {
+    ok(`Semua image_prompt sudah cocok dengan narasi ✓`);
+  }
+}
+
+// Simple string similarity (Dice coefficient)
+function stringSimilarity(a, b) {
+  if (!a || !b) return 0;
+  const bigrams = (str) => {
+    const s = new Set();
+    for (let i = 0; i < str.length - 1; i++) s.add(str.substring(i, i + 2));
+    return s;
+  };
+  const setA = bigrams(a), setB = bigrams(b);
+  let intersection = 0;
+  for (const bg of setA) if (setB.has(bg)) intersection++;
+  return (2 * intersection) / (setA.size + setB.size) || 0;
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -629,115 +808,77 @@ async function generateThumbnail(script, era, outDir) {
 // ────────────────────────────────────────────────────────────────
 function buildKenBurns(sceneIdx, dur, w, h) {
   const fps = 24;
-  const TF  = dur * fps;
-  // 20% overscan supaya ada ruang gerak
-  const OW  = Math.round(w * 1.22);
-  const OH  = Math.round(h * 1.22);
+  // Animasi harus cukup untuk dur + 3s buffer (karena image loop = dur+3)
+  const TF  = (dur + 3) * fps;
+  // 18% overscan — ruang gerak cukup tanpa distorsi
+  const OW  = Math.round(w * 1.18);
+  const OH  = Math.round(h * 1.18);
   const PX  = OW - w;
   const PY  = OH - h;
 
-  // ── Easing helpers (quadratic, nilai dalam pixel/frame) ─────
-  // ease-in  zoom: mulai lambat, makin cepat  → n*n/TF
-  // ease-out zoom: mulai cepat, makin lambat  → TF*(1-(TF-n)*(TF-n)/TF/TF)*px
-  // linear (fallback): n/TF * totalPx
-  const zxE = Math.max(1, Math.round((OW - w) / TF));  // px/frame zoom
-  const zyE = Math.max(1, Math.round((OH - h) / TF));
-  const pxE = Math.max(1, Math.round(PX / TF));
-  const pyE = Math.max(1, Math.round(PY / TF));
+  // Kecepatan gerak linear — smooth, tanpa shake, tanpa rotasi
+  const zx  = Math.max(1, Math.round((OW - w) / TF));
+  const zy  = Math.max(1, Math.round((OH - h) / TF));
+  const px  = Math.max(1, Math.round(PX / TF));
+  const py  = Math.max(1, Math.round(PY / TF));
 
-  // ── Handheld shake parameters ────────────────────────────────
-  // 3 profil: halus (A), sedang (B), kuat (C)
-  const SHAKE = [
-    { amp: 2.5, freq: 7  },   // A — hampir tidak terasa, subtle
-    { amp: 3.5, freq: 5  },   // B — sedikit gerak tangan
-    { amp: 2.0, freq: 11 },   // C — tremor frekuensi tinggi
-  ];
-  const sh  = SHAKE[sceneIdx % SHAKE.length];
-  const sAx = sh.amp.toFixed(1);
-  const sAy = (sh.amp * 0.7).toFixed(1);
-  const sF  = sh.freq;
-
-  // ── Rotation (tilt kecil, imersif) ──────────────────────────
-  const TILTS = [0, 0.012, -0.010, 0.015, -0.008, 0.010, -0.015, 0];
-  const tilt  = TILTS[sceneIdx % TILTS.length];  // radian — ≈0.5-0.86°
-
-  // ── 8 patterns pakai easing + shake ─────────────────────────
+  // ── 8 patterns — gerak halus linear, NO shake, NO rotation ──
   const patterns = [
-    // 0: Zoom in ease-in + shake A
-    { label: 'zoom-in-ease',
-      w2: `${OW}-${zxE}*n*n/${TF}`,
-      h2: `${OH}-${zyE}*n*n/${TF}`,
-      cx: `(iw-${w})/2+${sAx}*sin(2*PI*n/${sF})`,
-      cy: `(ih-${h})/2+${sAy}*cos(2*PI*n/${sF})` },
-    // 1: Zoom out ease-out + pan kanan
-    { label: 'zoom-out-pan-right',
-      w2: `${w}+${zxE}*(${TF}-n)*(${TF}-n)/${TF}/${TF}*${OW - w}/${Math.max(1,zxE)}`,
-      h2: `${h}+${zyE}*(${TF}-n)*(${TF}-n)/${TF}/${TF}*${OH - h}/${Math.max(1,zyE)}`,
-      cx: `${pxE}*n+${sAx}*sin(2*PI*n/${sF+2})`,
-      cy: `0+${sAy}*cos(2*PI*n/${sF})` },
-    // 2: Pan kanan smooth + shake
-    { label: 'pan-right-shake',
-      w2: `${OW}`,
-      h2: `${OH}`,
-      cx: `${pxE}*n+${sAx}*sin(2*PI*n/${sF})`,
-      cy: `${Math.round(PY/2)}+${sAy}*cos(2*PI*n/${sF+1})` },
-    // 3: Zoom in + pan atas ease-in
-    { label: 'zoom-in-pan-up',
-      w2: `${OW}-${zxE}*n*n/${TF}`,
-      h2: `${OH}-${zyE}*n*n/${TF}`,
-      cx: `(iw-${w})/2+${sAx}*sin(2*PI*n/${sF})`,
-      cy: `${PY}-${pyE}*n+${sAy}*sin(2*PI*n/${sF-1>1?sF-1:3})` },
-    // 4: Zoom out pojok kiri bawah + shake
-    { label: 'zoom-out-bottom-left',
-      w2: `${w}+${zxE}*n`,
-      h2: `${h}+${zyE}*n`,
-      cx: `0+${sAx}*sin(2*PI*n/${sF})`,
-      cy: `ih-${h}+${sAy}*cos(2*PI*n/${sF})` },
-    // 5: Pan diagonal + shake lemah
-    { label: 'diagonal-pan',
-      w2: `${OW}`,
-      h2: `${OH}`,
-      cx: `${Math.round(pxE*0.7)}*n+${sAx}*sin(2*PI*n/${sF+3})`,
-      cy: `${Math.round(pyE*0.7)}*n+${sAy}*cos(2*PI*n/${sF})` },
-    // 6: Zoom in + pan kiri ease-in
-    { label: 'zoom-in-pan-left',
-      w2: `${OW}-${zxE}*n*n/${TF}`,
-      h2: `${OH}-${zyE}*n*n/${TF}`,
-      cx: `${PX}-${pxE}*n+${sAx}*sin(2*PI*n/${sF})`,
-      cy: `(ih-${h})/2+${sAy}*cos(2*PI*n/${sF+1})` },
-    // 7: Pan ke atas + shake halus
-    { label: 'pan-up-shake',
-      w2: `${OW}`,
-      h2: `${OH}`,
-      cx: `${Math.round(PX/2)}+${sAx}*sin(2*PI*n/${sF})`,
-      cy: `${PY}-${pyE}*n+${sAy}*cos(2*PI*n/${sF})` },
+    // 0: Zoom in perlahan dari tengah
+    { label: 'zoom-in-center',
+      w2: `${OW}-${zx}*n`,   h2: `${OH}-${zy}*n`,
+      cx: `(iw-${w})/2`,     cy: `(ih-${h})/2` },
+    // 1: Zoom out + geser kanan
+    { label: 'zoom-out-right',
+      w2: `${w}+${zx}*n`,    h2: `${h}+${zy}*n`,
+      cx: `${px}*n`,          cy: `0` },
+    // 2: Geser kanan saja
+    { label: 'pan-right',
+      w2: `${OW}`,            h2: `${OH}`,
+      cx: `${px}*n`,          cy: `${Math.round(PY/2)}` },
+    // 3: Zoom in + geser ke atas
+    { label: 'zoom-in-up',
+      w2: `${OW}-${zx}*n`,   h2: `${OH}-${zy}*n`,
+      cx: `(iw-${w})/2`,     cy: `${PY}-${py}*n` },
+    // 4: Zoom out dari pojok kiri bawah
+    { label: 'zoom-out-bottomleft',
+      w2: `${w}+${zx}*n`,    h2: `${h}+${zy}*n`,
+      cx: `0`,                cy: `ih-${h}` },
+    // 5: Geser diagonal
+    { label: 'pan-diagonal',
+      w2: `${OW}`,            h2: `${OH}`,
+      cx: `${Math.round(px*0.7)}*n`, cy: `${Math.round(py*0.7)}*n` },
+    // 6: Zoom in + geser kiri
+    { label: 'zoom-in-left',
+      w2: `${OW}-${zx}*n`,   h2: `${OH}-${zy}*n`,
+      cx: `${PX}-${px}*n`,   cy: `(ih-${h})/2` },
+    // 7: Geser ke atas saja
+    { label: 'pan-up',
+      w2: `${OW}`,            h2: `${OH}`,
+      cx: `${Math.round(PX/2)}`, cy: `${PY}-${py}*n` },
   ];
 
   const p = patterns[sceneIdx % patterns.length];
 
-  // ── Susun filter chain ────────────────────────────────────────
-  const filterParts = [
+  // Filter chain: scale dua kali (aktifkan frame-eval), crop, setsar
+  // TANPA rotate, TANPA shake — gerakan smooth & stabil
+  const filter = [
     `scale=iw:ih:eval=frame`,
     `scale='${p.w2}':'${p.h2}':eval=frame:flags=lanczos`,
     `crop=${w}:${h}:'${p.cx}':'${p.cy}'`,
-  ];
+    `setsar=1`,
+  ].join(',');
 
-  // Tambah tilt ringan jika ada (tidak untuk scene 0 & 7 — biar steady)
-  if (tilt !== 0) {
-    filterParts.push(`rotate='${tilt}:fillcolor=black@0'`);
-  }
-
-  filterParts.push(`setsar=1`);
-
-  return { filter: filterParts.join(','), label: p.label };
+  return { filter, label: p.label };
 }
 
 // Fade-in / Fade-out pada video clip
 function buildFadeFilter(dur, fps = 24) {
-  const fadeFrames = Math.min(8, Math.floor(fps * 0.35)); // ~0.35 detik
-  const fadeInEnd  = fadeFrames / fps;
-  const fadeOutStart = dur - (fadeFrames / fps);
-  return `fade=t=in:st=0:d=${fadeInEnd.toFixed(3)},fade=t=out:st=${fadeOutStart.toFixed(3)}:d=${fadeInEnd.toFixed(3)}`;
+  const fadeFrames = Math.min(8, Math.floor(fps * 0.3)); // ~0.3 detik
+  const fadeSec    = fadeFrames / fps;
+  // Fade-out mulai di akhir (dur+2 sebagai buffer — -shortest yang tentukan akhir)
+  const fadeOutStart = Math.max(0, (dur + 2) - fadeSec);
+  return `fade=t=in:st=0:d=${fadeSec.toFixed(3)},fade=t=out:st=${fadeOutStart.toFixed(3)}:d=${fadeSec.toFixed(3)}`;
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1052,13 +1193,15 @@ async function renderEpisode(jadwalItem) {
     const audioFile   = `${TMP_AUD}/scene${s.n}.mp3`;
     const audioExists = fs.existsSync(audioFile) && fs.statSync(audioFile).size > 1000;
     const ok2 = audioExists ? true : await generateTTSEdge(s.narration, audioFile);
-    const dur  = ok2 ? getAudioDuration(audioFile) : Math.ceil(s.narration.split(' ').length * 0.42);
-    const durFinal = Math.max(12, Math.ceil(dur + 0.8));
+    const audioDur = ok2 ? getAudioDuration(audioFile) : Math.ceil(s.narration.split(' ').length * 0.42);
+    // Durasi clip = durasi audio + 1.5s buffer (jangan pernah potong narasi!)
+    // Minimal 5s (safety), TIDAK ADA batas atas — biar narasi selesai dulu
+    const durFinal = Math.max(5, Math.ceil(audioDur + 1.5));
     totalSec += durFinal;
-    ok(`Scene ${String(s.n).padStart(2,' ')} [${audioExists ? 'cached' : 'Edge TTS id-ID-ArdiNeural'}]: ${durFinal}s`);
+    ok(`Scene ${String(s.n).padStart(2,' ')} [${audioExists ? 'cached' : 'Edge TTS id-ID-ArdiNeural'}]: audio=${audioDur.toFixed(1)}s → clip=${durFinal}s`);
     scenesAudio.push({ ...s, audioFile, audioOk: ok2, duration: durFinal });
   }
-  log(`\n  📊 Total: ${Math.floor(totalSec/60)}m${totalSec%60}s\n`);
+  log(`\n  📊 Total: ${Math.floor(totalSec/60)}m${Math.round(totalSec%60)}s\n`);
 
   // ── STEP 2: Gambar + Motion ──────────────────────────────────
   step('2/5', '🎨  Generate gambar historis + motion...');
@@ -1179,21 +1322,22 @@ async function renderEpisode(jadwalItem) {
       });
     } else {
       // Scene lain: narasi di bawah dengan background semi-transparan
-      const lineH  = narSz + 8;
-      const totalH = 20 + narLines.length * lineH + 16;
-      const bgY    = VIDEO_H - totalH - 18;
-      textFilters.push(`drawbox=x=0:y=${bgY}:w=${VIDEO_W}:h=${totalH + 20}:color=black@0.70:t=fill`);
+      const lineH  = narSz + 6;
+      const totalH = 16 + narLines.length * lineH + 12;
+      const bgY    = VIDEO_H - totalH - 24;
+      textFilters.push(`drawbox=x=0:y=${bgY}:w=${VIDEO_W}:h=${totalH + 24}:color=black@0.70:t=fill`);
       narLines.forEach((ln, i) => {
-        const y     = bgY + 12 + i * lineH;
-        const color = i === 0 ? 'white' : (i === 1 ? '#FFFDE7' : '#FFF9C4');
+        const y     = bgY + 10 + i * lineH;
+        const color = i === 0 ? 'white' : '#FFFDE7';
         const bw    = i === 0 ? 3 : 2;
         const font  = i === 0 ? FONT_BOLD : FONT_NRM;
-        const sz    = i === 0 ? narSz : narSz - 2;
+        const sz    = i === 0 ? narSz : Math.max(14, narSz - 2);
         textFilters.push(`drawtext=text='${ln}':fontsize=${sz}:fontcolor=${color}:borderw=${bw}:bordercolor=black@0.85:x=(w-text_w)/2:y=${y}:fontfile='${font}'`);
       });
       if (labelEsc) {
-        textFilters.push(`drawbox=x=0:y=${VIDEO_H - (20 + narLines.length * (narSz + 8) + 16) - 18 - 32}:w=${VIDEO_W}:h=30:color=0x${eraInfo.bg}@0.75:t=fill`);
-        textFilters.push(`drawtext=text='${labelEsc}':fontsize=17:fontcolor=0x${eraColor}:x=(w-text_w)/2:y=${VIDEO_H - (20 + narLines.length * (narSz + 8) + 16) - 18 - 28}:fontfile='${FONT_BOLD}'`);
+        const labelY = bgY - 30;
+        textFilters.push(`drawbox=x=0:y=${labelY}:w=${VIDEO_W}:h=28:color=0x${eraInfo.bg}@0.75:t=fill`);
+        textFilters.push(`drawtext=text='${labelEsc}':fontsize=16:fontcolor=0x${eraColor}:x=(w-text_w)/2:y=${labelY + 4}:fontfile='${FONT_BOLD}'`);
       }
     }
 
@@ -1209,6 +1353,7 @@ async function renderEpisode(jadwalItem) {
         ...textFilters,
         fadeFilter,
       ].join(',');
+      // -shortest → stop ketika audio habis (audio = durasi master)
       cmd = `"${FFMPEG}" -y -i "${s.motionFile}" -i "${s.audioFile}" -vf "${vf}" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -r 24 -c:a aac -b:a 160k -shortest "${clipOut}"`;
     } else {
       // ── Sumber gambar statis: Ken Burns + teks overlay + fade ──
@@ -1216,7 +1361,9 @@ async function renderEpisode(jadwalItem) {
       const fadeFilter = buildFadeFilter(dur);
       const vf = [kbFilter, `setsar=1`, ...textFilters, fadeFilter].join(',');
       log(`     🎥 Ken Burns [${kbLabel}] dur=${dur}s`);
-      cmd = `"${FFMPEG}" -y -loop 1 -framerate 24 -t ${dur + 0.5} -i "${s.imgFile}" -i "${s.audioFile}" -vf "${vf}" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -r 24 -c:a aac -b:a 160k -t ${dur} "${clipOut}"`;
+      // Image loop lebih panjang dari audio (+3s buffer), output di-cut oleh -shortest
+      // TIDAK ada -t di akhir → audio selesai baru video stop, narasi TIDAK terpotong
+      cmd = `"${FFMPEG}" -y -loop 1 -framerate 24 -t ${dur + 3} -i "${s.imgFile}" -i "${s.audioFile}" -vf "${vf}" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -r 24 -c:a aac -b:a 160k -shortest "${clipOut}"`;
     }
 
     try {
@@ -1235,7 +1382,7 @@ async function renderEpisode(jadwalItem) {
             `setsar=1`,
             ...textFilters,
           ].join(',');
-          const cmdFallback = `"${FFMPEG}" -y -loop 1 -t ${dur} -i "${s.imgFile}" -i "${s.audioFile}" -vf "${vfSimple}" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -r 24 -c:a aac -b:a 160k -t ${dur} "${clipOut}"`;
+          const cmdFallback = `"${FFMPEG}" -y -loop 1 -t ${dur + 3} -i "${s.imgFile}" -i "${s.audioFile}" -vf "${vfSimple}" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -r 24 -c:a aac -b:a 160k -shortest "${clipOut}"`;
           execSync(cmdFallback, { stdio:'pipe', timeout:90000, shell:'cmd.exe' });
           const kb = Math.round(fs.statSync(clipOut).size / 1024);
           ok(`Clip ${s.n} [fallback static]: ${dur}s → ${kb}KB`);
@@ -1263,50 +1410,39 @@ async function renderEpisode(jadwalItem) {
   log('\n  🔗 Menggabungkan semua clips...');
 
   try {
+    // Stream copy dulu (cepat, tanpa re-encode, semua clips sudah format sama)
     execSync(
-      `"${FFMPEG}" -y -f concat -safe 0 -i "${concatList}" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -c:a aac -b:a 160k "${finalVideo}"`,
-      { stdio:'pipe', timeout:180000, shell:'cmd.exe' }
+      `"${FFMPEG}" -y -f concat -safe 0 -i "${concatList}" -c copy "${finalVideo}"`,
+      { stdio:'pipe', timeout:120000, shell:'cmd.exe' }
     );
     const mb = (fs.statSync(finalVideo).size / (1024*1024)).toFixed(2);
     ok(`Video final: ${mb} MB → ${finalVideo}`);
   } catch(e) {
-    err(`Concat gagal: ${e.message.substring(0,100)}`);
-    return false;
+    // Fallback: re-encode jika stream copy gagal
+    warn(`Concat stream-copy gagal, fallback ke re-encode...`);
+    try {
+      execSync(
+        `"${FFMPEG}" -y -f concat -safe 0 -i "${concatList}" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -c:a aac -b:a 160k "${finalVideo}"`,
+        { stdio:'pipe', timeout:600000, shell:'cmd.exe' }
+      );
+      const mb = (fs.statSync(finalVideo).size / (1024*1024)).toFixed(2);
+      ok(`Video final (re-encode): ${mb} MB → ${finalVideo}`);
+    } catch(e2) {
+      err(`Concat gagal: ${e2.message.substring(0,100)}`);
+      return false;
+    }
   }
 
   // ── STEP 4: Buat ASS Subtitle + Social Media Text ──────────
-  step('4/5', '📝  Buat subtitle word-by-word + social_media.txt...');
+  step('4/5', '📝  Buat social_media.txt...');
 
   const motionCount = scenesImages.filter(s => s.motionOk).length;
   const ttsLabel    = 'Edge TTS id-ID-ArdiNeural';
   const imgLabel    = LEONARDO_KEY ? (motionCount > 0 ? `Leonardo AI + Kling Motion (${motionCount} scene)` : 'Leonardo AI') : 'Picsum Fallback';
 
-  // ── Generate ASS subtitle word-by-word (+ SRT sebagai backup) ──
-  const assPath = generateASSSubtitle(SCRIPT.scenes, scenesAudio, OUT_DIR);
-
-  // ── Burn subtitle ke video final ──
-  const assEsc = assPath.replace(/\\/g,'/').replace(/^([A-Z]):/, (_, d) => `${d}\\:`);
-  const concatNoSub = finalVideo.replace('.mp4', '_nosub.mp4');
-
-  // Rename video tanpa sub dulu, lalu burn subtitle
-  try {
-    fs.renameSync(finalVideo, concatNoSub);
-    execSync(
-      `"${FFMPEG}" -y -i "${concatNoSub}" -vf "ass='${assEsc}'" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -c:a copy "${finalVideo}"`,
-      { stdio:'pipe', timeout:300000, shell:'cmd.exe' }
-    );
-    fs.unlinkSync(concatNoSub); // hapus file sementara
-    const mb2 = (fs.statSync(finalVideo).size / (1024*1024)).toFixed(2);
-    ok(`Subtitle word-by-word di-burn ke video: ${mb2} MB`);
-  } catch(e) {
-    // Jika burn subtitle gagal, pakai video tanpa subtitle
-    warn(`Burn subtitle gagal (${e.message.substring(0,60)}), pakai video tanpa subtitle`);
-    if (fs.existsSync(concatNoSub) && !fs.existsSync(finalVideo)) {
-      fs.renameSync(concatNoSub, finalVideo);
-    } else if (fs.existsSync(concatNoSub)) {
-      fs.unlinkSync(concatNoSub);
-    }
-  }
+  // ── Hanya buat SRT sebagai referensi, TANPA burn ke video ──
+  generateSubtitleSRT(SCRIPT.scenes, scenesAudio, OUT_DIR);
+  info('Subtitle word-by-word di-skip (tidak di-burn ke video)');
 
   // ── Bangun hashtag 30+ (sejarah + trending) ──
   const BASE_TAGS_SEJARAH = [
