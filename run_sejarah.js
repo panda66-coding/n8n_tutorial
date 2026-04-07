@@ -27,7 +27,14 @@ const FFPROBE   = 'C:/Users/User/AppData/Local/Microsoft/WinGet/Packages/Gyan.FF
 const FONT_BOLD = 'C\\:/Windows/Fonts/arialbd.ttf';
 const FONT_NRM  = 'C\\:/Windows/Fonts/arial.ttf';
 const BASE_DIR  = path.join(__dirname, 'output/sejarah').replace(/\\/g, '/');
-const JADWAL    = JSON.parse(fs.readFileSync(path.join(__dirname, 'content/sejarah_kerajaan_30hari.json'), 'utf8'));
+
+// Prioritas: env JADWAL_FILE → content/sejarah_kerajaan/bulan_tahun.json → legacy fallback
+const _now      = new Date();
+const _namaBln  = ['','januari','februari','maret','april','mei','juni','juli','agustus','september','oktober','november','desember'];
+const _defFile  = path.join(__dirname, `content/sejarah_kerajaan/${_namaBln[_now.getMonth()+1]}_${_now.getFullYear()}.json`);
+const _legFile  = path.join(__dirname, 'content/sejarah_kerajaan_30hari.json');
+const _jadwalPath = process.env.JADWAL_FILE || (fs.existsSync(_defFile) ? _defFile : _legFile);
+const JADWAL    = JSON.parse(fs.readFileSync(_jadwalPath, 'utf8'));
 
 // ── API KEYS ───────────────────────────────────────────────────
 const GROQ_KEY     = process.env.GROQ_API_KEY       || '';
@@ -79,13 +86,12 @@ function slugify(s) {
 
 function getAudioDuration(f) {
   try {
-    const out = execSync(`"${FFPROBE}" -v quiet -show_entries format=duration -of csv=p=0 "${f}"`,
-      { encoding:'utf8', timeout:8000, shell:'cmd.exe' });
-    const raw = parseFloat(out.trim());
-    if (isNaN(raw) || raw <= 0) return 12;
-    // Kembalikan durasi ASLI (desimal) + 0.3s safety buffer
-    return Math.round((raw + 0.3) * 100) / 100;
-  } catch(e) { return 12; }
+    const out = execSync(`"${FFPROBE}" -v error -show_entries format=duration -of csv=p=0 "${f}"`,
+      { encoding:'utf8', timeout:10000, shell:'cmd.exe' });
+    const sec = parseFloat(out.trim());
+    if (isNaN(sec) || sec < 0.5) return 10;
+    return sec;  // FLOAT ASLI — jangan bulatkan, jangan tambah buffer
+  } catch(e) { return 10; }
 }
 
 function downloadFile(url, dest) {
@@ -109,7 +115,24 @@ function escTxt(t) {
     .substring(0, 160);
 }
 
-function wrapTxt(t, videoW, maxLines = 5) {
+// Potong narasi jadi max 15 kata untuk overlay (720px portrait, harus muat 6 baris)
+function shortenForOverlay(narration, maxWords = 15) {
+  const words = narration.trim().split(/\s+/);
+  if (words.length <= maxWords) return narration.trim();
+  // Coba ambil kalimat utuh yang muat
+  const sentences = narration.split(/[.!?]+/).filter(s => s.trim());
+  let result = '';
+  for (const s of sentences) {
+    const test = (result + s.trim() + '. ').trim();
+    if (test.split(/\s+/).length > maxWords) break;
+    result = test;
+  }
+  if (result && result.split(/\s+/).length >= 5) return result.trim();
+  // Fallback: potong langsung di maxWords
+  return words.slice(0, maxWords).join(' ') + '...';
+}
+
+function wrapTxt(t, videoW, maxLines = 6) {
   const CONFIGS = [
     { size: 28, coef: 0.63 }, { size: 24, coef: 0.60 },
     { size: 22, coef: 0.58 }, { size: 20, coef: 0.57 },
@@ -317,9 +340,9 @@ RULES KETAT:
 8. Scene terakhir: berikan emotional punch / twist yang tidak terduga
 9. JSON SAJA, TANPA markdown, TANPA komentar`;
 
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= 5; attempt++) {
     try {
-      if (attempt > 1) { info(`Retry ${attempt}/3 setelah 25 detik...`); sleep(25000); }
+      if (attempt > 1) { info(`Retry ${attempt}/5 setelah 60 detik...`); sleep(60000); }
       const res = await httpsPost('api.groq.com', '/openai/v1/chat/completions',
         { 'Authorization': `Bearer ${GROQ_KEY}` },
         JSON.stringify({
@@ -333,7 +356,7 @@ RULES KETAT:
         })
       );
 
-      if (res.status === 429) { warn(`Groq rate limit (429), attempt ${attempt}/3`); continue; }
+      if (res.status === 429) { warn(`Groq rate limit (429), attempt ${attempt}/5`); continue; }
       if (res.status !== 200) { warn(`Groq error ${res.status}`); return null; }
 
       const content = res.body.choices?.[0]?.message?.content || '';
@@ -357,10 +380,10 @@ RULES KETAT:
       return script;
     } catch(e) {
       warn(`Groq gagal (attempt ${attempt}): ${e.message.substring(0,100)}`);
-      if (attempt < 3) sleep(15000);
+      if (attempt < 5) sleep(15000);
     }
   }
-  warn('Groq gagal setelah 3x retry');
+  warn('Groq gagal setelah 5x retry');
   return null;
 }
 
@@ -808,54 +831,74 @@ async function generateThumbnail(script, era, outDir) {
 // ────────────────────────────────────────────────────────────────
 function buildKenBurns(sceneIdx, dur, w, h) {
   const fps = 24;
-  // Animasi harus cukup untuk dur + 3s buffer (karena image loop = dur+3)
-  const TF  = (dur + 3) * fps;
+  // Total frames = image loop duration (dur + 3s buffer)
+  const TF  = Math.round((dur + 3) * fps);
   // 18% overscan — ruang gerak cukup tanpa distorsi
   const OW  = Math.round(w * 1.18);
   const OH  = Math.round(h * 1.18);
-  const PX  = OW - w;
-  const PY  = OH - h;
+  const PX  = OW - w;   // extra width  = 130px (untuk 720)
+  const PY  = OH - h;   // extra height = 230px (untuk 1280)
 
-  // Kecepatan gerak linear — smooth, tanpa shake, tanpa rotasi
-  const zx  = Math.max(1, Math.round((OW - w) / TF));
-  const zy  = Math.max(1, Math.round((OH - h) / TF));
-  const px  = Math.max(1, Math.round(PX / TF));
-  const py  = Math.max(1, Math.round(PY / TF));
+  // ─── FRACTIONAL SPEED ───
+  // Gunakan ratio per-frame agar zoom-in TIDAK PERNAH membuat scale < crop size
+  // Rumus: speed = extraPixels / TF → hasilnya desimal (misal 0.356)
+  // FFmpeg eval=frame mendukung floating point di expression
+  const spdW = (PX / TF).toFixed(4);   // pixel/frame untuk zoom width
+  const spdH = (PY / TF).toFixed(4);   // pixel/frame untuk zoom height
+  const spdPX = (PX / TF).toFixed(4);  // pixel/frame untuk pan X
+  const spdPY = (PY / TF).toFixed(4);  // pixel/frame untuk pan Y
+
+  // Zoom-in: mulai dari OW → menuju W. Clamp dengan max() agar TIDAK < w/h
+  // Rumus: max(targetSize, startSize - speed*n)
+  const ziW = `max(${w}\\,${OW}-${spdW}*n)`;
+  const ziH = `max(${h}\\,${OH}-${spdH}*n)`;
+
+  // Zoom-out: mulai dari W → menuju OW. Clamp dengan min() agar TIDAK > OW/OH
+  const zoW = `min(${OW}\\,${w}+${spdW}*n)`;
+  const zoH = `min(${OH}\\,${h}+${spdH}*n)`;
+
+  // Pan: clamp agar crop tidak keluar dari overscan area
+  const panR  = `min(${PX}\\,${spdPX}*n)`;
+  const panD  = `min(${PY}\\,${spdPY}*n)`;
+  const panL  = `max(0\\,${PX}-${spdPX}*n)`;
+  const panU  = `max(0\\,${PY}-${spdPY}*n)`;
+  const panDiagX = `min(${PX}\\,${(PX * 0.7 / TF).toFixed(4)}*n)`;
+  const panDiagY = `min(${PY}\\,${(PY * 0.7 / TF).toFixed(4)}*n)`;
 
   // ── 8 patterns — gerak halus linear, NO shake, NO rotation ──
   const patterns = [
     // 0: Zoom in perlahan dari tengah
     { label: 'zoom-in-center',
-      w2: `${OW}-${zx}*n`,   h2: `${OH}-${zy}*n`,
+      w2: ziW,   h2: ziH,
       cx: `(iw-${w})/2`,     cy: `(ih-${h})/2` },
     // 1: Zoom out + geser kanan
     { label: 'zoom-out-right',
-      w2: `${w}+${zx}*n`,    h2: `${h}+${zy}*n`,
-      cx: `${px}*n`,          cy: `0` },
-    // 2: Geser kanan saja
+      w2: zoW,    h2: zoH,
+      cx: panR,              cy: `0` },
+    // 2: Geser kanan saja (fixed overscan size)
     { label: 'pan-right',
       w2: `${OW}`,            h2: `${OH}`,
-      cx: `${px}*n`,          cy: `${Math.round(PY/2)}` },
+      cx: panR,              cy: `${Math.round(PY / 2)}` },
     // 3: Zoom in + geser ke atas
     { label: 'zoom-in-up',
-      w2: `${OW}-${zx}*n`,   h2: `${OH}-${zy}*n`,
-      cx: `(iw-${w})/2`,     cy: `${PY}-${py}*n` },
+      w2: ziW,   h2: ziH,
+      cx: `(iw-${w})/2`,     cy: panU },
     // 4: Zoom out dari pojok kiri bawah
     { label: 'zoom-out-bottomleft',
-      w2: `${w}+${zx}*n`,    h2: `${h}+${zy}*n`,
+      w2: zoW,    h2: zoH,
       cx: `0`,                cy: `ih-${h}` },
     // 5: Geser diagonal
     { label: 'pan-diagonal',
       w2: `${OW}`,            h2: `${OH}`,
-      cx: `${Math.round(px*0.7)}*n`, cy: `${Math.round(py*0.7)}*n` },
+      cx: panDiagX,           cy: panDiagY },
     // 6: Zoom in + geser kiri
     { label: 'zoom-in-left',
-      w2: `${OW}-${zx}*n`,   h2: `${OH}-${zy}*n`,
-      cx: `${PX}-${px}*n`,   cy: `(ih-${h})/2` },
-    // 7: Geser ke atas saja
+      w2: ziW,   h2: ziH,
+      cx: panL,              cy: `(ih-${h})/2` },
+    // 7: Geser ke atas saja (fixed overscan size)
     { label: 'pan-up',
       w2: `${OW}`,            h2: `${OH}`,
-      cx: `${Math.round(PX/2)}`, cy: `${PY}-${py}*n` },
+      cx: `${Math.round(PX / 2)}`, cy: panU },
   ];
 
   const p = patterns[sceneIdx % patterns.length];
@@ -876,8 +919,9 @@ function buildKenBurns(sceneIdx, dur, w, h) {
 function buildFadeFilter(dur, fps = 24) {
   const fadeFrames = Math.min(8, Math.floor(fps * 0.3)); // ~0.3 detik
   const fadeSec    = fadeFrames / fps;
-  // Fade-out mulai di akhir (dur+2 sebagai buffer — -shortest yang tentukan akhir)
-  const fadeOutStart = Math.max(0, (dur + 2) - fadeSec);
+  // Fade-out mulai di akhir clip (dur = clipDur = audioDur+2, output = audioDur+1)
+  // Kita target fade-out sebelum akhir audio: dur - 1 (= audioDur + 1) - fadeSec
+  const fadeOutStart = Math.max(0, dur - 1 - fadeSec);
   return `fade=t=in:st=0:d=${fadeSec.toFixed(3)},fade=t=out:st=${fadeOutStart.toFixed(3)}:d=${fadeSec.toFixed(3)}`;
 }
 
@@ -1193,13 +1237,14 @@ async function renderEpisode(jadwalItem) {
     const audioFile   = `${TMP_AUD}/scene${s.n}.mp3`;
     const audioExists = fs.existsSync(audioFile) && fs.statSync(audioFile).size > 1000;
     const ok2 = audioExists ? true : await generateTTSEdge(s.narration, audioFile);
-    const audioDur = ok2 ? getAudioDuration(audioFile) : Math.ceil(s.narration.split(' ').length * 0.42);
-    // Durasi clip = durasi audio + 1.5s buffer (jangan pernah potong narasi!)
-    // Minimal 5s (safety), TIDAK ADA batas atas — biar narasi selesai dulu
-    const durFinal = Math.max(5, Math.ceil(audioDur + 1.5));
-    totalSec += durFinal;
-    ok(`Scene ${String(s.n).padStart(2,' ')} [${audioExists ? 'cached' : 'Edge TTS id-ID-ArdiNeural'}]: audio=${audioDur.toFixed(1)}s → clip=${durFinal}s`);
-    scenesAudio.push({ ...s, audioFile, audioOk: ok2, duration: durFinal });
+    const audioDur = ok2 ? getAudioDuration(audioFile) : (s.narration.split(' ').length * 0.45);
+    // clipDur  = durasi animasi Ken Burns & fade (audio + 2 detik ruang napas)
+    // loopDur  = durasi image loop FFmpeg input (audio + 4 detik biar aman)
+    const clipDur  = Math.round((audioDur + 2) * 10) / 10;
+    const loopDur  = Math.round((audioDur + 4) * 10) / 10;
+    totalSec += clipDur;
+    ok(`Scene ${String(s.n).padStart(2,' ')} [${audioExists ? 'cached' : 'Edge TTS id-ID-ArdiNeural'}]: audio=${audioDur.toFixed(1)}s → clip=${clipDur}s`);
+    scenesAudio.push({ ...s, audioFile, audioOk: ok2, audioDur, duration: clipDur, loopDur });
   }
   log(`\n  📊 Total: ${Math.floor(totalSec/60)}m${Math.round(totalSec%60)}s\n`);
 
@@ -1279,10 +1324,10 @@ async function renderEpisode(jadwalItem) {
   for (const s of scenesImages) {
     const clipOut  = `${TMP_CLIP}/clip${String(s.n).padStart(2,'0')}.mp4`;
 
-    // Text overlay
+    // Text overlay — gunakan shortenForOverlay agar tidak terpotong
     const isHook   = s.n === 1;
-    const narEsc   = escTxt(s.narration);
-    const hookEsc  = escTxt(SCRIPT.hook || judul);
+    const narEsc   = escTxt(shortenForOverlay(s.narration));
+    const hookEsc  = escTxt(shortenForOverlay(SCRIPT.hook || judul));
     const labelEsc = escTxt(s.label || '');
 
     const { lines: narLines,  fontSize: narFontSize  } = wrapTxt(narEsc, VIDEO_W);
@@ -1343,6 +1388,9 @@ async function renderEpisode(jadwalItem) {
 
     let cmd;
 
+    // Output duration = audioDur + 1s (pastikan audio TIDAK terpotong)
+    const outDur = Math.round((s.audioDur + 1) * 10) / 10;
+
     if (s.motionOk) {
       // ── Sumber video Kling: scale + crop + teks overlay + fade ──
       const fadeFilter = buildFadeFilter(dur);
@@ -1353,17 +1401,16 @@ async function renderEpisode(jadwalItem) {
         ...textFilters,
         fadeFilter,
       ].join(',');
-      // -shortest → stop ketika audio habis (audio = durasi master)
-      cmd = `"${FFMPEG}" -y -i "${s.motionFile}" -i "${s.audioFile}" -vf "${vf}" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -r 24 -c:a aac -b:a 160k -shortest "${clipOut}"`;
+      // -t outDur → durasi output eksplisit (audio+1s), TANPA -shortest agar audio tidak terpotong
+      cmd = `"${FFMPEG}" -y -i "${s.motionFile}" -i "${s.audioFile}" -vf "${vf}" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -r 24 -c:a aac -b:a 160k -t ${outDur} "${clipOut}"`;
     } else {
       // ── Sumber gambar statis: Ken Burns + teks overlay + fade ──
       const { filter: kbFilter, label: kbLabel } = buildKenBurns(s.n - 1, dur, VIDEO_W, VIDEO_H);
       const fadeFilter = buildFadeFilter(dur);
       const vf = [kbFilter, `setsar=1`, ...textFilters, fadeFilter].join(',');
-      log(`     🎥 Ken Burns [${kbLabel}] dur=${dur}s`);
-      // Image loop lebih panjang dari audio (+3s buffer), output di-cut oleh -shortest
-      // TIDAK ada -t di akhir → audio selesai baru video stop, narasi TIDAK terpotong
-      cmd = `"${FFMPEG}" -y -loop 1 -framerate 24 -t ${dur + 3} -i "${s.imgFile}" -i "${s.audioFile}" -vf "${vf}" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -r 24 -c:a aac -b:a 160k -shortest "${clipOut}"`;
+      log(`     🎥 Ken Burns [${kbLabel}] dur=${dur}s outDur=${outDur}s`);
+      // Image loop = loopDur (audioDur+4s), output di-cut oleh -t outDur (audioDur+1s)
+      cmd = `"${FFMPEG}" -y -loop 1 -framerate 24 -t ${s.loopDur} -i "${s.imgFile}" -i "${s.audioFile}" -vf "${vf}" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -r 24 -c:a aac -b:a 160k -t ${outDur} "${clipOut}"`;
     }
 
     try {
@@ -1382,7 +1429,7 @@ async function renderEpisode(jadwalItem) {
             `setsar=1`,
             ...textFilters,
           ].join(',');
-          const cmdFallback = `"${FFMPEG}" -y -loop 1 -t ${dur + 3} -i "${s.imgFile}" -i "${s.audioFile}" -vf "${vfSimple}" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -r 24 -c:a aac -b:a 160k -shortest "${clipOut}"`;
+          const cmdFallback = `"${FFMPEG}" -y -loop 1 -t ${s.loopDur} -i "${s.imgFile}" -i "${s.audioFile}" -vf "${vfSimple}" -c:v libx264 -preset fast -crf 18 -b:v 2500k -maxrate 3500k -bufsize 7000k -pix_fmt yuv420p -r 24 -c:a aac -b:a 160k -t ${outDur} "${clipOut}"`;
           execSync(cmdFallback, { stdio:'pipe', timeout:90000, shell:'cmd.exe' });
           const kb = Math.round(fs.statSync(clipOut).size / 1024);
           ok(`Clip ${s.n} [fallback static]: ${dur}s → ${kb}KB`);
@@ -1688,27 +1735,20 @@ async function renderEpisode(jadwalItem) {
   fs.writeFileSync(`${OUT_DIR}/social_media.txt`, socialLines.join('\n'), 'utf8');
   ok('social_media.txt dibuat');
 
-  // ── Cleanup tmp ─────────────────────────────────────────────
+  // ── Cleanup tmp ──────────────────────────────────────────────
   [TMP_IMG, TMP_AUD, TMP_CLIP, TMP_MOT].forEach(d => {
     try { fs.rmSync(d, { recursive: true, force: true }); ok(`Dihapus: ${path.basename(d)}/`); } catch(e) {}
   });
 
   // ── STEP 5: Kirim Telegram ───────────────────────────────────
   step('5/5', '📲  Kirim ke Telegram...');
-
   const tgMsg = `🏛️ <b>Hari ${hari}/30 — Sejarah Indonesia</b>\n<b>${judul}</b>\n\n${eraInfo.label}\n\n📊 ${SCRIPT.scenes.length} scene | ${Math.floor(totalSec/60)}m${totalSec%60}s | ${motionCount > 0 ? `${motionCount} scene animasi Kling` : 'gambar static'}\n\n✅ Siap upload ke TikTok/YouTube Shorts!`;
   tgSendMessage(tgMsg);
-
-  // Kirim thumbnail dulu
   if (thumbnailPath && fs.existsSync(thumbnailPath)) {
-    // Hindari emoji di caption curl.exe (encoding issue di Windows cmd)
     const thumbCaption = `Thumbnail Hari ${hari}/30 - ${judul} - Leonardo AI 1024x576`;
     tgSendPhoto(thumbnailPath, thumbCaption);
   }
-
   tgSendVideo(finalVideo.replace(/\//g,'\\'), `Hari ${hari}/30: ${judul}`);
-
-  // Kirim social_media.txt
   const socialPath = `${OUT_DIR}/social_media.txt`.replace(/\//g,'\\');
   try {
     execSync(`curl.exe -s -F chat_id=${TG_CHAT_ID} -F document=@"${socialPath}" "https://api.telegram.org/bot${TG_TOKEN}/sendDocument"`,

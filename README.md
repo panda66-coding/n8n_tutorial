@@ -1,6 +1,6 @@
-﻿# 🏛️ Sejarah Kerajaan Indonesia — Auto Video Pipeline
+﻿# 🏛️ AI Video Pipeline — Sejarah Kerajaan Indonesia
 
-Pipeline otomatis untuk membuat video edukasi sejarah Indonesia bergaya **clay animation / chibi** dengan narasi AI, suara natural, subtitle word-by-word highlight, Ken Burns animation, dan distribusi ke Telegram — semuanya dari satu perintah.
+Pipeline otomatis untuk membuat video edukasi sejarah Indonesia bergaya **clay animation / chibi** dengan narasi AI, suara natural, Ken Burns animation, subtitle, thumbnail, dan distribusi ke Telegram — semuanya dari satu perintah.
 
 ---
 
@@ -8,13 +8,13 @@ Pipeline otomatis untuk membuat video edukasi sejarah Indonesia bergaya **clay a
 
 | Fitur | Keterangan |
 |-------|-----------|
-| 🤖 Script AI | Groq AI (llama-3.3-70b) — narasi bahasa Indonesia untuk anak-anak |
+| 🤖 Script AI | Groq AI (llama-3.3-70b) — narasi bahasa Indonesia dramatis |
 | 🎙️ Voice | Microsoft Edge TTS `id-ID-ArdiNeural` — suara natural (bukan robot) |
 | 🎨 Gambar | Leonardo AI (Lightning XL) — gaya chibi / clay animation |
 | 🎬 Animasi | Ken Burns 8 pola — zoom in/out, pan kiri/kanan/atas/diagonal |
-| 📝 Subtitle | Word-by-word ASS + highlight kata penting (kuning, lebih besar) |
 | 📲 Distribusi | Otomatis kirim thumbnail, video, caption ke Telegram |
 | 📋 Social Media | Caption siap pakai untuk TikTok, YouTube Shorts, Instagram |
+| 🗓️ Multi-bulan | Jadwal konten per bulan/tahun, bisa generate tema baru |
 
 ---
 
@@ -30,7 +30,7 @@ Pipeline otomatis untuk membuat video edukasi sejarah Indonesia bergaya **clay a
 ### API Keys (wajib untuk fitur penuh)
 | Key | Fungsi | Link |
 |-----|--------|------|
-| `GROQ_API_KEY` | Generate script narasi | [console.groq.com](https://console.groq.com) |
+| `GROQ_API_KEY` | Generate script narasi + jadwal konten | [console.groq.com](https://console.groq.com) |
 | `LEONARDO_API_KEY` | Generate gambar AI | [app.leonardo.ai](https://app.leonardo.ai) |
 | `TELEGRAM_BOT_TOKEN` | Kirim video ke Telegram | [@BotFather](https://t.me/BotFather) |
 | `TELEGRAM_CHAT_ID` | ID channel/group Telegram | [@userinfobot](https://t.me/userinfobot) |
@@ -64,11 +64,10 @@ KLING_SECRET_KEY=xxxxxxxxxxxxxxxx   (opsional)
 
 ### 3. Set Path FFmpeg
 
-Buka `run_sejarah.js` baris 24-25, sesuaikan path FFmpeg-mu:
+Buka `run.ps1` cari baris `$ffmpegDir`, sesuaikan path FFmpeg-mu:
 
-```javascript
-const FFMPEG  = 'C:/path/to/ffmpeg.exe';
-const FFPROBE = 'C:/path/to/ffprobe.exe';
+```powershell
+$ffmpegDir = "C:\path\to\ffmpeg\bin"
 ```
 
 > **Tips:** Jalankan `where.exe ffmpeg` di PowerShell untuk tahu lokasi FFmpeg.
@@ -77,66 +76,107 @@ const FFPROBE = 'C:/path/to/ffprobe.exe';
 
 ## ▶️ Cara Menjalankan
 
-### Metode 1 — Script PowerShell (Paling Mudah)
+### 🔥 Metode Utama — `run.ps1` (Direkomendasikan)
 
-Double-click atau jalankan:
+Script launcher utama yang mendukung input **hari**, **bulan**, dan **tahun**:
 
 ```powershell
-.\start_sejarah.ps1
-```
+# Build hari ini otomatis (berdasarkan tanggal + jadwal bulan ini)
+.\run.ps1
 
-Script ini otomatis membaca `config/env_variables.txt` dan menjalankan pipeline untuk hari yang tepat berdasarkan tanggal hari ini.
+# Build hari tertentu di bulan ini
+.\run.ps1 -hari 5
+
+# Build hari tertentu di bulan & tahun tertentu
+.\run.ps1 -hari 5 -bulan 5 -tahun 2026
+
+# Ganti jadwal ke bulan lain tanpa paksa hari
+.\run.ps1 -bulan 5 -tahun 2026
+
+# Lihat daftar semua topik bulan ini
+.\run.ps1 -list
+
+# Lihat daftar topik bulan tertentu
+.\run.ps1 -list -bulan 5 -tahun 2026
+
+# Build tanpa animasi Kling (lebih cepat)
+.\run.ps1 -hari 5 -noMotion
+
+# Build semua hari sekaligus
+.\run.ps1 -semua
+```
 
 ---
 
-### Metode 2 — Manual via PowerShell (Pilih Hari)
+### 🧠 Generate Jadwal Konten Baru — `gen_content.ps1`
 
-**Set environment variables dulu:**
+Buat jadwal konten untuk tema dan bulan/tahun baru menggunakan Groq AI:
 
 ```powershell
+# Mode interaktif — ditanya satu per satu
+.\gen_content.ps1
+
+# Mode langsung — masukkan semua parameter
+.\gen_content.ps1 -tema "Pahlawan Nasional Indonesia" -jumlahHari 30 -bulan 5 -tahun 2026
+
+# Contoh tema lain:
+.\gen_content.ps1 -tema "Ilmuwan Muslim Dunia" -jumlahHari 30 -bulan 6 -tahun 2026
+.\gen_content.ps1 -tema "Dinosaurus dan Prasejarah" -jumlahHari 15 -bulan 7 -tahun 2026
+.\gen_content.ps1 -tema "Keajaiban Alam Indonesia" -jumlahHari 30 -bulan 8 -tahun 2026
+```
+
+Output otomatis disimpan di `content/sejarah_kerajaan/<bulan>_<tahun>.json`
+
+---
+
+### ⚙️ Metode Manual — via PowerShell langsung
+
+```powershell
+# Set env vars dulu
 $env:GROQ_API_KEY       = "gsk_xxx..."
 $env:LEONARDO_API_KEY   = "xxx..."
 $env:TELEGRAM_BOT_TOKEN = "xxx..."
 $env:TELEGRAM_CHAT_ID   = "123456789"
-```
 
-**Kemudian jalankan salah satu perintah:**
+# Opsional: set file jadwal tertentu
+$env:JADWAL_FILE = "E:\n8n_tutorial\content\sejarah_kerajaan\april_2026.json"
 
-```powershell
-# Generate hari tertentu — contoh hari ke-5
+# Jalankan
 node run_sejarah.js --hari 5
-
-# Generate hari ini otomatis (berdasarkan tanggal)
-node run_sejarah.js
-
-# Lihat daftar semua 30 judul
 node run_sejarah.js --list
-
-# Skip animasi Kling (lebih cepat, pakai Ken Burns saja)
-node run_sejarah.js --hari 5 --no-motion
-
-# Animasi semua scene dengan Kling AI
-node run_sejarah.js --hari 5 --motion-all
-
-# Mode panjang: 15 scene, durasi 3-5 menit
-node run_sejarah.js --hari 5 --long
-
-# Generate semua 30 hari sekaligus (butuh waktu lama)
 node run_sejarah.js --semua
+node run_sejarah.js --hari 5 --no-motion
+node run_sejarah.js --hari 5 --long
 ```
 
 ---
 
-### Metode 3 — start_sejarah.ps1 + Pilih Hari Tertentu
+## 📁 Struktur Workspace
 
-Edit file `start_sejarah.ps1`, ubah baris perintah node di bagian bawah:
-
-```powershell
-# Contoh: paksa hari ke-7 tanpa animasi Kling
-node run_sejarah.js --hari 7 --no-motion
 ```
-
-Lalu simpan dan double-click `start_sejarah.ps1`.
+n8n_tutorial/
+├── run_sejarah.js          ← Engine utama pipeline video
+├── run.ps1                 ← Launcher utama (pakai ini!)
+├── gen_content.ps1         ← Generator jadwal konten baru
+├── gen_content.js          ← Engine generator konten (Groq AI)
+├── start_sejarah.ps1       ← Launcher legacy (masih bisa dipakai)
+├── config/
+│   └── env_variables.txt   ← API keys (jangan di-commit!)
+├── content/
+│   ├── sejarah_kerajaan_30hari.json       ← File legacy (fallback)
+│   └── sejarah_kerajaan/
+│       ├── april_2026.json                ← Jadwal April 2026
+│       └── <bulan>_<tahun>.json           ← Jadwal bulan lainnya
+├── output/sejarah/
+│   └── hari_XX_judul.../
+│       ├── judul.mp4
+│       ├── script.json
+│       ├── social_media.txt
+│       ├── subtitle.srt
+│       └── thumbnail.jpg
+└── workflows/
+    └── ai_video_pipeline.json             ← n8n workflow
+```
 
 ---
 
@@ -146,30 +186,26 @@ Setiap hari menghasilkan folder di `output/sejarah/`:
 
 ```
 output/sejarah/
-└── hari_05_kerajaan_xyz/
-    ├── kerajaan_xyz.mp4      ← Video final (subtitle sudah ter-burn)
-    ├── script.json           ← Script narasi lengkap dari Groq AI
-    ├── social_media.txt      ← Caption siap upload TikTok/YT/IG
-    ├── subtitle.ass          ← Subtitle word-by-word (untuk edit manual)
-    ├── subtitle.srt          ← Subtitle standar (backup)
-    └── thumbnail.jpg         ← Thumbnail 1024×576
+└── hari_05_borobudur_candi_terbesar_di_dunia/
+    ├── borobudur_candi_terbesar_di_dunia.mp4  ← Video final
+    ├── script.json                             ← Script narasi lengkap
+    ├── social_media.txt                        ← Caption siap upload
+    ├── subtitle.srt                            ← Subtitle standar
+    └── thumbnail.jpg                           ← Thumbnail 1024×576
 ```
 
 ---
 
-## 🗓️ Jadwal 30 Hari
+## 🗓️ Jadwal Konten Bawaan (April 2026)
 
-Lihat semua judul dengan:
-```powershell
-node run_sejarah.js --list
-```
+File: `content/sejarah_kerajaan/april_2026.json`
 
 | Hari | Judul | Era |
 |------|-------|-----|
 | 1 | Kerajaan Majapahit — Kerajaan Terbesar Nusantara | Hindu-Buddha |
 | 2 | Sumpah Palapa — Janji Gajah Mada yang Luar Biasa | Hindu-Buddha |
 | 3 | Kerajaan Sriwijaya — Kerajaan Laut Paling Kuat | Hindu-Buddha |
-| 4–30 | Jalankan `--list` untuk lihat semua | Berbagai era |
+| 4–30 | Jalankan `.\run.ps1 -list` untuk lihat semua | Berbagai era |
 
 ---
 
@@ -212,13 +248,13 @@ const HIGHLIGHT_WORDS = [
 
 | Masalah | Solusi |
 |---------|--------|
-| `curl: no URL specified` | Gunakan `curl.exe` bukan `curl` (sudah di-fix otomatis) |
-| `Groq API rate limit` | Tunggu 1 menit, jalankan ulang |
+| `File jadwal tidak ditemukan` | Jalankan `.\gen_content.ps1 -bulan X -tahun YYYY` untuk generate |
+| `Groq API rate limit (429)` | Tunggu ~1 menit — retry otomatis 5x dengan jeda 60 detik |
 | `Leonardo API quota habis` | Cek dashboard [app.leonardo.ai](https://app.leonardo.ai) |
-| `FFmpeg not found` | Sesuaikan path FFmpeg di baris 24-25 `run_sejarah.js` |
+| `FFmpeg not found` | Update `$ffmpegDir` di `run.ps1` |
 | `Edge TTS gagal` | Otomatis fallback ke Google TTS |
-| `Video tidak terkirim Telegram` | Cek `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_CHAT_ID` |
-| `ETIMEDOUT kirim video` | Timeout di-set 5 menit, koneksi mungkin lambat |
+| `Video tidak terkirim Telegram` | Cek `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_CHAT_ID` di `config/env_variables.txt` |
+| `ETIMEDOUT kirim video` | Timeout 5 menit — koneksi mungkin lambat, coba ulang |
 
 ---
 
